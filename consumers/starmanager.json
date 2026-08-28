@@ -1,0 +1,67 @@
+{
+  "schemaVersion": 1,
+  "consumer": "starmanager",
+  "repositories": [
+    {
+      "id": "starmanager-ios",
+      "root": "../StarManager",
+      "lockFile": ".aibi-lock.json",
+      "verification": "xcodebuild -project StarManager.xcodeproj -scheme StarManager -sdk iphonesimulator -configuration Debug build CODE_SIGNING_ALLOWED=NO",
+      "files": [
+        {
+          "source": "profiles/starmanager/distribution/ios/ExternalAIBrowserView.swift",
+          "destination": "StarManager/Features/Composer/ExternalAIBrowserView.swift",
+          "scope": "host-adapted-runtime"
+        }
+      ]
+    },
+    {
+      "id": "starmanager-android",
+      "root": "../StarManager-Android",
+      "lockFile": ".aibi-lock.json",
+      "verification": "./gradlew testDebugUnitTest assembleDebug",
+      "files": [
+        {
+          "source": "profiles/starmanager/distribution/android/ExternalAIModels.kt",
+          "destination": "app/src/main/java/com/armsone/starmanager/ui/externalai/ExternalAIModels.kt",
+          "scope": "portable-core"
+        },
+        {
+          "source": "profiles/starmanager/distribution/android/ExternalAIScripts.kt",
+          "destination": "app/src/main/java/com/armsone/starmanager/ui/externalai/ExternalAIScripts.kt",
+          "scope": "provider-runtime"
+        },
+        {
+          "source": "profiles/starmanager/distribution/android/ExternalAISecurityPolicy.kt",
+          "destination": "app/src/main/java/com/armsone/starmanager/ui/externalai/ExternalAISecurityPolicy.kt",
+          "scope": "portable-security"
+        },
+        {
+          "source": "profiles/starmanager/distribution/android/ExternalAIAnswerCleaner.kt",
+          "destination": "app/src/main/java/com/armsone/starmanager/ui/externalai/ExternalAIAnswerCleaner.kt",
+          "scope": "host-adapted-cleaner"
+        },
+        {
+          "source": "profiles/starmanager/distribution/android/ExternalAIErrorSanitizer.kt",
+          "destination": "app/src/main/java/com/armsone/starmanager/ui/externalai/ExternalAIErrorSanitizer.kt",
+          "scope": "portable-security"
+        },
+        {
+          "source": "profiles/starmanager/distribution/android/ExternalAIFallbackClassifier.kt",
+          "destination": "app/src/main/java/com/armsone/starmanager/ui/externalai/ExternalAIFallbackClassifier.kt",
+          "scope": "portable-core"
+        },
+        {
+          "source": "profiles/starmanager/distribution/android/ExternalAITimerFormatter.kt",
+          "destination": "app/src/main/java/com/armsone/starmanager/ui/externalai/ExternalAITimerFormatter.kt",
+          "scope": "host-adapted-presentation"
+        },
+        {
+          "source": "profiles/starmanager/distribution/android/ExternalAIAuthStatus.kt",
+          "destination": "app/src/main/java/com/armsone/starmanager/ui/externalai/ExternalAIAuthStatus.kt",
+          "scope": "android-platform-adapter"
+        }
+      ]
+    }
+  ]
+}
