@@ -7,7 +7,7 @@ import com.google.gson.JsonObject
 import com.google.gson.JsonParser
 
 /**
- * AIBI in-browser DOM 자동화, 관찰, 오류 감지 스크립트 킷.
+ * AIBI in-browser DOM 자동화, 관찰, 오류 감지, 미디어 첨부 스크립트 킷.
  */
 object ExternalAIScripts {
 
@@ -15,6 +15,92 @@ object ExternalAIScripts {
 
     /** 프롬프트 문자열을 JavaScript 안전한 문자열 리터럴로 인코딩 */
     fun jsStringLiteral(value: String): String = gson.toJson(value)
+
+    /** 대표 사진 첨부 스크립트 (DataURL -> File 객체 생성 -> DataTransfer -> input.files 설정 및 이벤트 디스패치) */
+    fun attachPhotoScript(provider: DirectAIProvider, attachment: ExternalAIAttachment): String {
+        val config = providerSelectors(provider)
+        val dataUrlLiteral = jsStringLiteral(attachment.dataUrl)
+        val mimeLiteral = jsStringLiteral(attachment.mimeType)
+        val filenameLiteral = jsStringLiteral(attachment.filename)
+        return """
+            (async function() {
+                try {
+                    var fileInputSelectors = ['input[type="file"]'];
+                    var triggerSelectors = ${config.attachTrigger};
+                    var dataUrl = $dataUrlLiteral;
+                    var mime = $mimeLiteral;
+                    var filename = $filenameLiteral;
+
+                    function queryFirst(selectors) {
+                        for (var i = 0; i < selectors.length; i++) {
+                            try {
+                                var el = document.querySelector(selectors[i]);
+                                if (el) return el;
+                            } catch (e) {}
+                        }
+                        return null;
+                    }
+
+                    var input = queryFirst(fileInputSelectors);
+                    if (!input) {
+                        var trigger = queryFirst(triggerSelectors);
+                        if (trigger) {
+                            trigger.click();
+                            await new Promise(function(r) { setTimeout(r, 400); });
+                            input = queryFirst(fileInputSelectors);
+                        }
+                    }
+
+                    if (!input) {
+                        return JSON.stringify({ success: false, error: 'FILE_INPUT_NOT_FOUND' });
+                    }
+
+                    var res = await fetch(dataUrl);
+                    var blob = await res.blob();
+                    var file = new File([blob], filename, { type: mime, lastModified: Date.now() });
+
+                    var dt = new DataTransfer();
+                    dt.items.add(file);
+                    input.files = dt.files;
+                    input.dispatchEvent(new Event('change', { bubbles: true, composed: true }));
+                    input.dispatchEvent(new Event('input', { bubbles: true, composed: true }));
+
+                    return JSON.stringify({ success: true });
+                } catch (e) {
+                    return JSON.stringify({ success: false, error: e.message || String(e) });
+                }
+            })();
+        """.trimIndent()
+    }
+
+    /** 대표 사진 첨부 완료 여부(미리보기 썸네일 노출) 확인 스크립트 */
+    fun checkAttachmentConfirmedScript(provider: DirectAIProvider): String {
+        val config = providerSelectors(provider)
+        return """
+            (function() {
+                try {
+                    var selectors = ${config.attachmentConfirmed};
+                    function isVisible(el) {
+                        if (!el) return false;
+                        var style = window.getComputedStyle(el);
+                        if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') return false;
+                        return el.offsetWidth > 0 || el.offsetHeight > 0 || el.getClientRects().length > 0;
+                    }
+                    for (var i = 0; i < selectors.length; i++) {
+                        try {
+                            var els = document.querySelectorAll(selectors[i]);
+                            for (var j = 0; j < els.length; j++) {
+                                if (isVisible(els[j])) return JSON.stringify({ confirmed: true });
+                            }
+                        } catch (_) {}
+                    }
+                    return JSON.stringify({ confirmed: false });
+                } catch (e) {
+                    return JSON.stringify({ confirmed: false, error: e.message || String(e) });
+                }
+            })();
+        """.trimIndent()
+    }
 
     /** 현재 어시스턴트 메시지 기준선(baseline)을 페이지 JS 전역 상태에 기록하는 스크립트 */
     fun recordBaselineScript(provider: DirectAIProvider): String {
@@ -193,8 +279,8 @@ object ExternalAIScripts {
 
                     var isTextField = el.tagName === 'TEXTAREA' || el.tagName === 'INPUT';
                     var current = (isTextField ? el.value : (el.innerText || el.textContent || '')).trim();
-                    var isPreviousAIBIDraft = current.indexOf('[내가 입력한 내용]') === 0 &&
-                        current.indexOf('[원하는 결과]') > 0;
+                    var isPreviousAIBIDraft = current.indexOf('[내가 입력한 내용]') === 0 ||
+                        current.indexOf('[상황]') === 0;
 
                     // 이전 시도에서 같은 문구가 남아 있으면 성공으로 인정
                     if (current === text.trim()) {
@@ -270,7 +356,7 @@ object ExternalAIScripts {
         """.trimIndent()
     }
 
-    /** 단계별 전송 에스컬레이션 스크립트 (클릭 -> 포인터/마우스 -> 폼 제출 -> 엔터 키 이벤트) */
+    /** 단계별 전송 에스컬레이션 스크립트 */
     fun submitPromptScript(provider: DirectAIProvider, attemptNumber: Int): String {
         val config = providerSelectors(provider)
         return """
@@ -366,7 +452,7 @@ object ExternalAIScripts {
         """.trimIndent()
     }
 
-    /** Android WebView에서 신뢰된 네이티브 터치를 만들기 위한 전송 버튼 중심 좌표(뷰포트 비율). */
+    /** Android WebView에서 신뢰된 네이티브 터치를 만들기 위한 전송 버튼 중심 좌표 */
     fun submitTargetScript(provider: DirectAIProvider): String {
         val config = providerSelectors(provider)
         return """
@@ -406,7 +492,7 @@ object ExternalAIScripts {
         """.trimIndent()
     }
 
-    /** 전송 완료 여부 확인 스크립트 (입력창 비워짐 || 어시스턴트 메시지 수 증가 || 생성 인디케이터 표시) */
+    /** 전송 완료 여부 확인 스크립트 */
     fun verifySubmissionScript(provider: DirectAIProvider, baselineCount: Int): String {
         val config = providerSelectors(provider)
         return """
@@ -473,7 +559,7 @@ object ExternalAIScripts {
         """.trimIndent()
     }
 
-    /** 생성 관찰 및 답변 추출 스크립트 (pre/code 우선 추출, 오류 및 챌린지 검사) */
+    /** 생성 관찰 및 답변 추출 스크립트 */
     fun extractAnswerScript(provider: DirectAIProvider): String {
         val config = providerSelectors(provider)
         return """
@@ -734,7 +820,6 @@ object ExternalAIScripts {
                     }
 
                     // 2. 긍정적 인증 증거 (컴포저/입력창 또는 계정 마커) 검사
-                    // 상태 확인용 WebView는 화면에 붙지 않으므로 DOM 존재 자체를 사용한다.
                     var inputEl = queryFirstVisible(inputSelectors);
                     var authMarkerEl = queryFirstVisible(authMarkerSelectors);
                     var hasPositiveEvidence = (inputEl !== null) || (authMarkerEl !== null);
@@ -787,6 +872,41 @@ object ExternalAIScripts {
     }
 
     // MARK: - 파싱 유틸리티
+
+    fun parseAttachmentResult(rawResult: String?): ExternalAIAttachmentResult {
+        if (rawResult == null || rawResult == "null" || rawResult.isBlank()) {
+            return ExternalAIAttachmentResult(success = false, error = "NO_RESPONSE")
+        }
+        return try {
+            val element = parseJsonElement(rawResult)
+                ?: return ExternalAIAttachmentResult(success = false, error = "INVALID_RESPONSE")
+            if (element.isJsonObject) {
+                val obj = element.asJsonObject
+                ExternalAIAttachmentResult(
+                    success = obj.optBoolean("success", false),
+                    error = obj.optNullableString("error")
+                )
+            } else {
+                ExternalAIAttachmentResult(success = false, error = null)
+            }
+        } catch (e: Exception) {
+            ExternalAIAttachmentResult(success = false, error = e.message)
+        }
+    }
+
+    fun parseAttachmentConfirmed(rawResult: String?): Boolean {
+        if (rawResult == null || rawResult == "null" || rawResult.isBlank()) return false
+        return try {
+            val element = parseJsonElement(rawResult) ?: return false
+            if (element.isJsonObject) {
+                element.asJsonObject.optBoolean("confirmed", false)
+            } else {
+                false
+            }
+        } catch (_: Exception) {
+            false
+        }
+    }
 
     fun parseAuthCheckResult(rawResult: String?): ExternalAIAuthCheckResult {
         if (rawResult == null || rawResult == "null" || rawResult.isBlank()) {
@@ -1026,7 +1146,9 @@ object ExternalAIScripts {
         val error: String,
         val login: String,
         val challenge: String,
-        val authMarkers: String
+        val authMarkers: String,
+        val attachTrigger: String,
+        val attachmentConfirmed: String
     )
 
     private fun providerSelectors(provider: DirectAIProvider): ProviderSelectors {
@@ -1108,6 +1230,22 @@ object ExternalAIScripts {
                         "div.ql-editor",
                         "rich-textarea"
                     )
+                ),
+                attachTrigger = toJsonArray(
+                    listOf(
+                        "button[aria-label*='Add files']",
+                        "button[aria-label*='Upload']",
+                        "button[aria-label*='이미지']",
+                        "button[aria-label*='사진']",
+                        "button[aria-label*='파일 추가']"
+                    )
+                ),
+                attachmentConfirmed = toJsonArray(
+                    listOf(
+                        "div[data-test-id*='file-preview']",
+                        "div.file-preview-container",
+                        "div[class*='uploader-file']"
+                    )
                 )
             )
             DirectAIProvider.OPEN_AI -> ProviderSelectors(
@@ -1185,6 +1323,22 @@ object ExternalAIScripts {
                         "button[data-testid='composer-speech-button']",
                         "nav a[href*='/c/']"
                     )
+                ),
+                attachTrigger = toJsonArray(
+                    listOf(
+                        "button[aria-label*='Attach']",
+                        "button[aria-label*='첨부']",
+                        "button[data-testid='composer-plus-btn']",
+                        "button[aria-label*='Add photos']",
+                        "button[aria-label*='사진']"
+                    )
+                ),
+                attachmentConfirmed = toJsonArray(
+                    listOf(
+                        "div[data-testid*='attachment']",
+                        "img[alt='Uploaded image']",
+                        "div[class*='attachment-tile']"
+                    )
                 )
             )
             DirectAIProvider.CLAUDE -> ProviderSelectors(
@@ -1259,6 +1413,19 @@ object ExternalAIScripts {
                         "button[data-testid='user-menu-button']",
                         "button[data-testid='chat-input-send-button']"
                     )
+                ),
+                attachTrigger = toJsonArray(
+                    listOf(
+                        "button[aria-label*='Attach']",
+                        "button[aria-label*='파일']",
+                        "button[aria-label*='업로드']"
+                    )
+                ),
+                attachmentConfirmed = toJsonArray(
+                    listOf(
+                        "div[data-testid='file-thumbnail']",
+                        "div[data-testid*='attachment']"
+                    )
                 )
             )
             DirectAIProvider.GROK -> ProviderSelectors(
@@ -1270,7 +1437,9 @@ object ExternalAIScripts {
                 error = toJsonArray(listOf(".text-destructive", "div.error-container")),
                 login = toJsonArray(listOf("a[href*='/login']", "button[data-testid*='login']", "a[href*='/signin']")),
                 challenge = toJsonArray(listOf("iframe[src*='challenges']")),
-                authMarkers = toJsonArray(listOf("textarea", "button[data-testid='user-menu-button']"))
+                authMarkers = toJsonArray(listOf("textarea", "button[data-testid='user-menu-button']")),
+                attachTrigger = toJsonArray(listOf("button[aria-label*='Attach']")),
+                attachmentConfirmed = toJsonArray(listOf("div[data-testid*='attachment']"))
             )
         }
     }

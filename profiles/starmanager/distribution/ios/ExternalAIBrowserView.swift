@@ -63,6 +63,20 @@ enum ExternalAIFallbackReason: String, Identifiable, Sendable {
     }
 }
 
+/// 작성기에서 스냅샷한 대표 사진 한 장. 외부 AI 버튼을 누른 시점에만 만들어지며,
+/// 진행 중인 요청이 이후의 미디어 편집에 영향받지 않도록 값으로만 전달된다.
+struct ExternalAIAttachment: Sendable, Equatable {
+    let data: Data
+    let mimeType: String
+    let filename: String
+
+    init(data: Data, mimeType: String = "image/jpeg", filename: String = "photo.jpg") {
+        self.data = data
+        self.mimeType = mimeType
+        self.filename = filename
+    }
+}
+
 struct ExternalAIBrowserContext: Identifiable, Sendable, Equatable {
     let id = UUID()
     let provider: ExternalAIProvider
@@ -80,6 +94,7 @@ struct ExternalAIBrowserContext: Identifiable, Sendable, Equatable {
 struct ExternalAIHiddenAutomatorView: View {
     let provider: ExternalAIProvider
     let prompt: String
+    var attachment: ExternalAIAttachment? = nil
     let generationID: UUID?
     var onSubmitted: ((Date) -> Void)? = nil
     let onSuccess: (String) -> Void
@@ -90,6 +105,8 @@ struct ExternalAIHiddenAutomatorView: View {
     @State private var hasSubmitted = false
     @State private var hasImported = false
     @State private var hasTriggeredFallback = false
+    @State private var hasAttemptedAttach = false
+    @State private var attachConfirmed = false
 
     var body: some View {
         ExternalAIWebView(provider: provider, bridge: bridge)
@@ -102,6 +119,8 @@ struct ExternalAIHiddenAutomatorView: View {
                 hasSubmitted = false
                 hasImported = false
                 hasTriggeredFallback = false
+                hasAttemptedAttach = false
+                attachConfirmed = false
             }
             .onChange(of: bridge.isAnswerStable) { _, stable in
                 guard stable, !bridge.latestAnswer.isEmpty, !hasImported, !hasTriggeredFallback else { return }
@@ -150,7 +169,23 @@ struct ExternalAIHiddenAutomatorView: View {
                 return
             }
 
-            if bridge.isPageReady {
+            // 대표 사진이 있는데 숨김 자동화가 안전하게 첨부하지 못하면, 사진을 빼고 글만 조용히
+            // 보내지 않고 곧바로 보이는 브라우저로 넘겨 사용자가 직접 첨부하게 한다.
+            if let attachment, !attachConfirmed, bridge.isPageReady {
+                if !hasAttemptedAttach {
+                    hasAttemptedAttach = true
+                    _ = await bridge.attachPhoto(attachment)
+                    try? await Task.sleep(nanoseconds: 500_000_000)
+                    attachConfirmed = await bridge.isAttachmentConfirmed()
+                }
+                if !attachConfirmed {
+                    hasTriggeredFallback = true
+                    onFallback(.interaction)
+                    return
+                }
+            }
+
+            if bridge.isPageReady, attachment == nil || attachConfirmed {
                 checkCount += 1
                 let filled = await bridge.fillPrompt(prompt, force: false)
                 if filled {
@@ -198,6 +233,7 @@ struct ExternalAIHiddenAutomatorView: View {
 struct ExternalAIBrowserSheet: View {
     let provider: ExternalAIProvider
     let prompt: String
+    var attachment: ExternalAIAttachment? = nil
     var fallbackReason: ExternalAIFallbackReason? = nil
     var onSubmitted: ((Date) -> Void)? = nil
     var onError: ((String) -> Void)? = nil
@@ -216,12 +252,18 @@ struct ExternalAIBrowserSheet: View {
     @State private var submittedAt: Date?
     @State private var elapsedSeconds = 0
     @State private var detectedErrorMessage: String?
+    @State private var hasAttemptedAttach = false
+    @State private var attachConfirmed = false
+    @State private var needsManualAttach = false
 
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
                 if let reason = fallbackReason {
                     fallbackBanner(reason)
+                }
+                if needsManualAttach, !attachConfirmed {
+                    manualAttachBanner
                 }
                 if let detectedErrorMessage {
                     errorBanner(detectedErrorMessage)
@@ -274,6 +316,7 @@ struct ExternalAIBrowserSheet: View {
                     Menu {
                         Button {
                             Task {
+                                guard await attachPhotoIfNeeded() else { return }
                                 if await fillPrompt(force: true) {
                                     await submitPromptWhenReady()
                                 }
@@ -341,6 +384,32 @@ struct ExternalAIBrowserSheet: View {
             .padding(.horizontal, 14)
             .padding(.vertical, 10)
             .background(Color(uiColor: .secondarySystemBackground))
+    }
+
+    private var manualAttachBanner: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: "photo.badge.plus")
+                .font(.headline)
+                .foregroundStyle(BrandTheme.accent)
+                .padding(.top, 1)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text("대표 사진을 직접 첨부해 주세요")
+                    .font(.subheadline.weight(.bold))
+                    .foregroundStyle(.primary)
+                Text("화면의 첨부 버튼을 한 번 눌러 사진을 추가하면 이어서 자동으로 진행돼요.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer()
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .background(Color(uiColor: .secondarySystemBackground))
+        .overlay(alignment: .bottom) {
+            Divider()
+        }
     }
 
     private func fallbackBanner(_ reason: ExternalAIFallbackReason) -> some View {
@@ -443,13 +512,29 @@ struct ExternalAIBrowserSheet: View {
     /// 각 메인 프레임 내비게이션이 끝날 때마다(로그인 리디렉션 포함) 호출되어,
     /// 입력창이 나타날 때까지 정해진 시간(45초) 동안 재시도한다.
     /// `.task(id:)`가 새 내비게이션 세대마다 이전 시도를 자동으로 취소해 준다.
+    /// 첨부가 필요 없으면 즉시 통과하고, 필요하면 한 번 자동 첨부를 시도한 뒤 첨부 확인
+    /// 여부를 돌려준다. 자동 첨부가 실패하면 배너로 사용자에게 직접 첨부를 안내하고,
+    /// 이후 호출에서 사용자가 직접 첨부했는지를 다시 확인한다.
+    private func attachPhotoIfNeeded() async -> Bool {
+        guard let attachment else { return true }
+        if attachConfirmed { return true }
+        if !hasAttemptedAttach {
+            hasAttemptedAttach = true
+            _ = await bridge.attachPhoto(attachment)
+            try? await Task.sleep(nanoseconds: 500_000_000)
+        }
+        attachConfirmed = await bridge.isAttachmentConfirmed()
+        needsManualAttach = !attachConfirmed
+        return attachConfirmed
+    }
+
     private func autoFillWhenReady() async {
         guard !hasSubmittedPrompt else { return }
         isAutoFilling = true
         defer { isAutoFilling = false }
         let deadline = Date().addingTimeInterval(45)
         while !Task.isCancelled, Date() < deadline, !hasSubmittedPrompt {
-            if bridge.isPageReady {
+            if bridge.isPageReady, await attachPhotoIfNeeded() {
                 if await fillPrompt(force: false) {
                     if await submitPromptWhenReady() {
                         return
@@ -970,6 +1055,39 @@ final class ExternalAIBrowserBridge: ObservableObject {
         }
     }
 
+    /// 대표 사진을 provider의 첨부 입력에 연결한다. 필요하면 먼저 첨부 버튼을 눌러 숨겨진
+    /// 파일 입력을 드러낸 뒤, `DataTransfer`로 `File`을 구성해 `input.files`에 넣는 표준 DOM
+    /// API만 사용한다. 네이티브 파일 코디네이터를 우회하거나 임의 파일에 접근하지 않는다.
+    func attachPhoto(_ attachment: ExternalAIAttachment) async -> Bool {
+        guard let webView else { return false }
+        let dataURL = "data:\(attachment.mimeType);base64,\(attachment.data.base64EncodedString())"
+        let script = """
+        window.__starManagerAttachPhoto ? window.__starManagerAttachPhoto(\
+        \(ExternalAIBrowserScripts.jsStringLiteral(dataURL)), \
+        \(ExternalAIBrowserScripts.jsStringLiteral(attachment.mimeType)), \
+        \(ExternalAIBrowserScripts.jsStringLiteral(attachment.filename))) : false;
+        """
+        do {
+            let result = try await webView.evaluateJavaScript(script)
+            return Self.boolean(from: result)
+        } catch {
+            return false
+        }
+    }
+
+    /// 화면에 사진 미리보기(썸네일)가 나타났는지로 첨부 성공 여부를 확인한다.
+    func isAttachmentConfirmed() async -> Bool {
+        guard let webView else { return false }
+        do {
+            let result = try await webView.evaluateJavaScript(
+                "window.__starManagerAttachmentConfirmed ? window.__starManagerAttachmentConfirmed() : false;"
+            )
+            return Self.boolean(from: result)
+        } catch {
+            return false
+        }
+    }
+
     func submitPrompt() async -> Bool {
         guard let webView else { return false }
         do {
@@ -1187,6 +1305,9 @@ private enum ExternalAIBrowserScripts {
           const assistantSelectors = \(jsArray(config.assistant));
           const generatingSelectors = \(jsArray(config.generating));
           const sendSelectors = \(jsArray(config.send));
+          const fileInputSelectors = \(jsArray(config.fileInput));
+          const attachTriggerSelectors = \(jsArray(config.attachTrigger));
+          const attachmentConfirmedSelectors = \(jsArray(config.attachmentConfirmed));
 
           function queryFirst(selectors) {
             for (const sel of selectors) {
@@ -1228,6 +1349,45 @@ private enum ExternalAIBrowserScripts {
             if (codeBlocks.length > 0) return codeBlocks.join('\\n\\n');
             return (element.innerText || element.textContent || '').trim();
           }
+
+          // 대표 사진을 첨부 입력에 연결한다. 숨겨진 파일 입력을 바로 찾지 못하면
+          // 첨부 버튼을 한 번 눌러 드러낸 뒤 다시 찾는다. DataTransfer로 File을 구성해
+          // input.files에 넣는 표준 DOM API만 사용하며, 자동 전송은 하지 않는다.
+          window.__starManagerAttachPhoto = function(dataURL, mime, filename) {
+            var input = queryFirst(fileInputSelectors);
+            var afterTrigger = function(input) {
+              return fetch(dataURL)
+                .then(function(res) { return res.blob(); })
+                .then(function(blob) {
+                  var file = new File([blob], filename, { type: mime });
+                  var dt = new DataTransfer();
+                  dt.items.add(file);
+                  input.files = dt.files;
+                  input.dispatchEvent(new Event('change', { bubbles: true }));
+                  input.dispatchEvent(new Event('input', { bubbles: true }));
+                  return true;
+                })
+                .catch(function() { return false; });
+            };
+            if (input) {
+              return afterTrigger(input);
+            }
+            var trigger = queryFirst(attachTriggerSelectors);
+            if (!trigger) { return Promise.resolve(false); }
+            trigger.focus();
+            trigger.click();
+            return new Promise(function(resolve) {
+              setTimeout(function() {
+                var revealed = queryFirst(fileInputSelectors);
+                if (!revealed) { resolve(false); return; }
+                afterTrigger(revealed).then(resolve);
+              }, 400);
+            });
+          };
+
+          window.__starManagerAttachmentConfirmed = function() {
+            return queryAll(attachmentConfirmedSelectors).some(isVisible);
+          };
 
           // force가 false일 때는 사용자가 우리가 넣은 것과 다른 내용을 이미 입력해 두었다면
           // 덮어쓰지 않는다(자동 채우기가 사용자 편집을 방해하지 않도록).
@@ -1432,6 +1592,9 @@ private enum ExternalAIBrowserScripts {
         let authenticated: [String]
         let login: [String]
         let challenge: [String]
+        let fileInput: [String]
+        let attachTrigger: [String]
+        let attachmentConfirmed: [String]
     }
 
     static func authStatusProbeScript(for provider: ExternalAIProvider) -> String {
@@ -1560,6 +1723,21 @@ private enum ExternalAIBrowserScripts {
                     "#challenge-form",
                     ".cf-turnstile",
                     "iframe[src*='turnstile']"
+                ],
+                fileInput: [
+                    "input[type='file']"
+                ],
+                attachTrigger: [
+                    "button[aria-label*='Attach']",
+                    "button[aria-label*='첨부']",
+                    "button[data-testid='composer-plus-btn']",
+                    "button[aria-label*='Add photos']",
+                    "button[aria-label*='사진']"
+                ],
+                attachmentConfirmed: [
+                    "div[data-testid*='attachment']",
+                    "img[alt='Uploaded image']",
+                    "div[class*='attachment-tile']"
                 ]
             )
         case .gemini:
@@ -1623,6 +1801,21 @@ private enum ExternalAIBrowserScripts {
                     "iframe[src*='recaptcha']",
                     "div.g-recaptcha",
                     "#challenge-stage"
+                ],
+                fileInput: [
+                    "input[type='file']"
+                ],
+                attachTrigger: [
+                    "button[aria-label*='Add files']",
+                    "button[aria-label*='Upload']",
+                    "button[aria-label*='이미지']",
+                    "button[aria-label*='사진']",
+                    "button[aria-label*='파일 추가']"
+                ],
+                attachmentConfirmed: [
+                    "div[data-test-id*='file-preview']",
+                    "div.file-preview-container",
+                    "div[class*='uploader-file']"
                 ]
             )
         case .grok:
@@ -1658,6 +1851,15 @@ private enum ExternalAIBrowserScripts {
                 ],
                 challenge: [
                     "iframe[src*='challenges']"
+                ],
+                fileInput: [
+                    "input[type='file']"
+                ],
+                attachTrigger: [
+                    "button[aria-label*='Attach']"
+                ],
+                attachmentConfirmed: [
+                    "div[data-testid*='attachment']"
                 ]
             )
         case .claude:
@@ -1711,6 +1913,18 @@ private enum ExternalAIBrowserScripts {
                     "iframe[src*='cloudflare']",
                     "div#challenge-stage",
                     "iframe[src*='turnstile']"
+                ],
+                fileInput: [
+                    "input[type='file']"
+                ],
+                attachTrigger: [
+                    "button[aria-label*='Attach']",
+                    "button[aria-label*='파일']",
+                    "button[aria-label*='업로드']"
+                ],
+                attachmentConfirmed: [
+                    "div[data-testid='file-thumbnail']",
+                    "div[data-testid*='attachment']"
                 ]
             )
         }

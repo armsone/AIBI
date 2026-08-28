@@ -18,6 +18,33 @@ enum class ExternalAIAuthState(val label: String) {
     val requiresLogin: Boolean get() = this == REQUIRES_LOGIN
 }
 
+/** 외부 AI 첨부용 대표 이미지 데이터 */
+data class ExternalAIAttachment(
+    val data: ByteArray,
+    val mimeType: String = "image/jpeg",
+    val filename: String = "representative_photo.jpg"
+) {
+    val dataUrl: String
+        get() {
+            val base64 = android.util.Base64.encodeToString(data, android.util.Base64.NO_WRAP)
+            return "data:$mimeType;base64,$base64"
+        }
+
+    override fun equals(other: Any?): Boolean {
+        if (this === other) return true
+        if (javaClass != other?.javaClass) return false
+        other as ExternalAIAttachment
+        return data.contentEquals(other.data) && mimeType == other.mimeType && filename == other.filename
+    }
+
+    override fun hashCode(): Int {
+        var result = data.contentHashCode()
+        result = 31 * result + mimeType.hashCode()
+        result = 31 * result + filename.hashCode()
+        return result
+    }
+}
+
 /** 외부 AI 인증 확인 DOM 스크립트 실행 결과 */
 data class ExternalAIAuthCheckResult(
     val success: Boolean,
@@ -31,6 +58,7 @@ data class ExternalAIAuthCheckResult(
 enum class ExternalAIStatus(val message: String) {
     IDLE("대기 중"),
     CONNECTING("연결 중…"),
+    ATTACHING("사진 첨부 중…"),
     WAITING_FOR_INPUT("입력창 찾는 중…"),
     INPUT_READY("요청문 입력 완료"),
     GENERATING("답변 생성 중…"),
@@ -42,6 +70,7 @@ enum class ExternalAIStatus(val message: String) {
 enum class ExternalAIAutomationPhase {
     IDLE,
     CONNECTING,
+    ATTACHING,
     SUBMITTED,
     WAITING_ELAPSED,
     COMPLETED,
@@ -61,6 +90,10 @@ enum class ExternalAIFallbackReason(
     SECURITY_VERIFICATION(
         bannerText = "보안 확인이 필요해요",
         detailText = "보안 확인을 마치면 자동으로 글을 이어서 써요."
+    ),
+    ATTACHMENT_FAILED(
+        bannerText = "대표 사진을 직접 첨부해 주세요",
+        detailText = "사진을 첨부하고 보내기를 누르면 이어서 글을 써요."
     ),
     MANUAL_INPUT_REQUIRED(
         bannerText = "입력창을 찾지 못했어요",
@@ -85,6 +118,7 @@ data class ExternalAITimingProfile(
     val readinessTimeoutMs: Long = 35_000L,
     val readinessCadenceMs: Long = 700L,
     val maxReadinessMisses: Int = 12, // 약 8.4초 동안 입력창 미발견 시 폴백
+    val attachmentTimeoutMs: Long = 10_000L,
     val submitTimeoutMs: Long = 15_000L,
     val submitCadenceMs: Long = 500L,
     val submitVerificationDelayMs: Long = 700L,
@@ -107,6 +141,11 @@ data class ExternalAIInjectionResult(
     val inputFound: Boolean,
     val submitted: Boolean,
     val isAuthChallenge: Boolean = false,
+    val error: String? = null
+)
+
+data class ExternalAIAttachmentResult(
+    val success: Boolean,
     val error: String? = null
 )
 
