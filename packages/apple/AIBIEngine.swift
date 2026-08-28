@@ -228,7 +228,7 @@ public final class AIBISession: NSObject, ObservableObject {
         self.pendingResult = nil
 
         let media = providerConfig.mediaCapabilities
-        if task.attachments.count > 8 ||
+        if task.attachments.count > 20 ||
             (!task.attachments.isEmpty &&
                 (media?.supportsImages != true || task.attachments.count > (media?.maxImagesPerTask ?? 0))) {
             failWithError("Image attachments are not supported for this task.")

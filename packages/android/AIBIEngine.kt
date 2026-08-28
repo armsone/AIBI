@@ -225,7 +225,7 @@ class AIBISession(
         _lastErrorMessage.value = null
         _pendingResult.value = null
 
-        if (task.attachments.size > 8 ||
+        if (task.attachments.size > 20 ||
             (task.attachments.isNotEmpty() &&
                 (!providerConfig.mediaCapabilities.supportsImages ||
                     task.attachments.size > providerConfig.mediaCapabilities.maxImagesPerTask))) {
