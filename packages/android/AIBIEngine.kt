@@ -21,12 +21,13 @@ import android.os.Looper
 import android.view.View
 import android.view.ViewGroup
 import android.webkit.*
+import androidx.core.content.FileProvider
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import org.json.JSONArray
 import org.json.JSONObject
+import java.io.File
 import java.util.UUID
 
 // MARK: - Core Enums & Data Models
@@ -118,6 +119,8 @@ data class AIBIProviderSelectors(
     val challengeIndicator: List<String>,
     val attachmentInput: List<String> = emptyList(),
     val attachmentTrigger: List<String> = emptyList(),
+    val attachmentMenuAction: List<String> = emptyList(),
+    val attachmentMenuActionText: List<String> = emptyList(),
     val attachmentPreview: List<String> = emptyList()
 )
 
@@ -195,6 +198,9 @@ class AIBISession(
 
     private var activeJob: Job? = null
     private var elapsedJob: Job? = null
+    private var nativeAttachmentDirectory: File? = null
+    private var nativeAttachmentUris: List<Uri> = emptyList()
+    private var nativeAttachmentNextSingleIndex = 0
     private var taskStartTimeMs: Long = 0L
     private var consecutiveMisses = 0
     private var submitAttemptCount = 0
@@ -236,22 +242,40 @@ class AIBISession(
         updatePhase(AIBIPhase.INITIALIZING, "Connecting to ${providerConfig.displayName}...")
         startElapsedTimer()
 
-        if (task.presentation == AIBIPresentationPreference.ALWAYS_VISIBLE) {
-            presentVisibleBrowser()
-        } else if (parentViewGroup != null) {
-            mountHiddenBrowser(parentViewGroup)
-        } else {
-            // An unattached WebView is not a valid hidden automation surface.
-            presentVisibleBrowser()
-        }
-
         val currentGen = generationId
-        val webView = activeWebView
-        updatePhase(AIBIPhase.NAVIGATING, "Loading ${providerConfig.displayName}...")
-        webView?.loadUrl(providerConfig.initialUrl)
+        scope.launch {
+            val prepared = try {
+                withContext(Dispatchers.IO) {
+                    prepareNativeAttachmentBatch(task.attachments)
+                }
+            } catch (_: Exception) {
+                if (generationId == currentGen) {
+                    failWithError("Could not prepare image attachments.")
+                }
+                return@launch
+            }
+            if (generationId != currentGen) {
+                prepared.first?.deleteRecursively()
+                return@launch
+            }
+            nativeAttachmentDirectory = prepared.first
+            nativeAttachmentUris = prepared.second
+            nativeAttachmentNextSingleIndex = 0
 
-        // Launch readiness loop
-        scheduleReadinessCheck(currentGen)
+            if (task.presentation == AIBIPresentationPreference.ALWAYS_VISIBLE) {
+                presentVisibleBrowser()
+            } else if (parentViewGroup != null) {
+                mountHiddenBrowser(parentViewGroup)
+            } else {
+                // An unattached WebView is not a valid hidden automation surface.
+                presentVisibleBrowser()
+            }
+
+            val webView = activeWebView
+            updatePhase(AIBIPhase.NAVIGATING, "Loading ${providerConfig.displayName}...")
+            webView?.loadUrl(providerConfig.initialUrl)
+            scheduleReadinessCheck(currentGen)
+        }
     }
 
     fun manualCopyPrompt() {
@@ -281,6 +305,7 @@ class AIBISession(
             updatePhase(AIBIPhase.CANCELLED, "Cancelled")
         }
         destroyHiddenBrowser()
+        disposeNativeAttachmentBatch()
     }
 
     fun fullReset() {
@@ -293,6 +318,7 @@ class AIBISession(
         _lastErrorMessage.value = null
         destroyHiddenBrowser()
         destroyVisibleBrowser()
+        disposeNativeAttachmentBatch()
         updatePhase(AIBIPhase.IDLE, "Ready")
     }
 
@@ -461,32 +487,78 @@ class AIBISession(
         val configJsonStr = buildConfigJsonString(config)
         val stateScript = "window.__AIBI_RUNTIME__.getAttachmentState($configJsonStr)"
         val baseline = parseAttachmentPreviewCount(evaluateScript(webView, stateScript)) ?: 0
+        val expectedTotal = baseline + task.attachments.size
+        nativeAttachmentNextSingleIndex = 0
 
         val prepareScript = "window.__AIBI_RUNTIME__.prepareAttachmentInput($configJsonStr)"
         evaluateScript(webView, prepareScript)
         delay(700L)
         if (generationId != generation) return false
 
-        val imageJson = JSONArray()
-        task.attachments.sortedBy { it.sourceIndex }.forEach { attachment ->
-            imageJson.put(JSONObject(mapOf(
+        var observedCount = baseline
+        val nativeOverallDeadline = System.currentTimeMillis() + timingProfile.attachmentTimeoutMs
+        while (generationId == generation && observedCount < expectedTotal &&
+            System.currentTimeMillis() < nativeOverallDeadline) {
+            val panelResult = evaluateScript(
+                webView,
+                "window.__AIBI_RUNTIME__.openAttachmentPanel($configJsonStr)"
+            )
+            // Navigation can finish before the provider hydrates its attachment portal. Keep the
+            // browser hidden and retry instead of exposing the visible fallback immediately.
+            if (panelResult == null || !parseRuntimeSuccess(panelResult)) {
+                delay(timingProfile.attachmentCadenceMs)
+                continue
+            }
+            val previousCount = observedCount
+            val nativePreviewWaitMs = if (config.id == "gemini") 20_000L else 6_000L
+            val nativeStepDeadline = minOf(
+                nativeOverallDeadline,
+                System.currentTimeMillis() + nativePreviewWaitMs
+            )
+            while (generationId == generation && System.currentTimeMillis() < nativeStepDeadline) {
+                observedCount = parseAttachmentPreviewCount(evaluateScript(webView, stateScript)) ?: 0
+                if (observedCount == expectedTotal) return true
+                if (observedCount > previousCount) break
+                delay(timingProfile.attachmentCadenceMs)
+            }
+            if (observedCount <= previousCount) break
+        }
+
+        val ordered = task.attachments.sortedBy { it.sourceIndex }
+        val beginResult = evaluateScript(
+            webView,
+            "window.__AIBI_RUNTIME__.beginAttachmentBatch($configJsonStr, ${ordered.size})"
+        ) ?: return false
+        if (!parseRuntimeSuccess(beginResult)) return false
+        ordered.forEachIndexed { index, attachment ->
+            val imageJson = JSONObject(mapOf(
                 "dataUrl" to attachment.dataUrl(),
                 "mimeType" to attachment.mimeType,
                 "filename" to attachment.filename
-            )))
+            ))
+            val staged = evaluateScript(
+                webView,
+                "window.__AIBI_RUNTIME__.stageAttachment($imageJson, $index)"
+            )
+            if (staged == null) {
+                evaluateScript(webView, "window.__AIBI_RUNTIME__.clearAttachmentBatch()")
+                return false
+            }
+            if (!parseRuntimeSuccess(staged)) {
+                evaluateScript(webView, "window.__AIBI_RUNTIME__.clearAttachmentBatch()")
+                return false
+            }
         }
-        val attachScript = "window.__AIBI_RUNTIME__.attachImages($configJsonStr, ${imageJson})"
-        val attachResult = evaluateScript(webView, attachScript) ?: return false
-        try {
-            if (!JSONObject(attachResult).optBoolean("success", false)) return false
-        } catch (_: Exception) {
-            return false
-        }
+        val attachResult = evaluateScript(
+            webView,
+            "window.__AIBI_RUNTIME__.commitAttachmentBatch($configJsonStr)"
+        ) ?: return false
+        if (!parseRuntimeSuccess(attachResult)) return false
 
         val deadline = System.currentTimeMillis() + timingProfile.attachmentTimeoutMs
         while (generationId == generation && System.currentTimeMillis() < deadline) {
             val previewCount = parseAttachmentPreviewCount(evaluateScript(webView, stateScript)) ?: 0
-            if (previewCount >= baseline + task.attachments.size) return true
+            if (previewCount == baseline + task.attachments.size) return true
             delay(timingProfile.attachmentCadenceMs)
         }
         return false
@@ -496,6 +568,12 @@ class AIBISession(
         JSONObject(raw ?: return null).optJSONObject("data")?.optInt("previewCount")
     } catch (_: Exception) {
         null
+    }
+
+    private fun parseRuntimeSuccess(raw: String): Boolean = try {
+        JSONObject(raw).optBoolean("success", false)
+    } catch (_: Exception) {
+        false
     }
 
     private fun startSubmissionLoop(generation: Long) {
@@ -581,7 +659,7 @@ class AIBISession(
             val isGenerating = data.optBoolean("isGenerating", true)
             val hasNewAnswer = data.optBoolean("hasNewAnswer", false)
             val rawText = data.optString("rawText", "")
-            val errorMessage = data.optString("errorMessage", null)
+            val errorMessage = data.optString("errorMessage").takeIf { it.isNotEmpty() && it != "null" }
 
             if (phaseStr == "FAILED" && !errorMessage.isNullOrEmpty()) {
                 activeJob?.cancel()
@@ -652,6 +730,7 @@ class AIBISession(
                 updatePhase(AIBIPhase.COMPLETED, "Import completed")
                 dismissVisibleBrowser()
                 destroyHiddenBrowser()
+                disposeNativeAttachmentBatch()
             } else {
                 val err = commitOutcome.exceptionOrNull()?.message ?: "Validation error"
                 updatePhase(AIBIPhase.FAILED, "Host import validation failed: $err")
@@ -660,6 +739,7 @@ class AIBISession(
             updatePhase(AIBIPhase.COMPLETED, "Result ready")
             dismissVisibleBrowser()
             destroyHiddenBrowser()
+            disposeNativeAttachmentBatch()
         }
     }
 
@@ -668,6 +748,7 @@ class AIBISession(
         _lastErrorMessage.value = message
         updatePhase(AIBIPhase.FAILED, message)
         destroyHiddenBrowser()
+        disposeNativeAttachmentBatch()
     }
 
     private fun escalateToVisible(reason: AIBIFallbackReason) {
@@ -701,6 +782,7 @@ class AIBISession(
             settings.domStorageEnabled = true
             settings.databaseEnabled = true
             webViewClient = createSecurityWebViewClient()
+            webChromeClient = createAttachmentWebChromeClient()
         }
 
         hiddenWebView = webView
@@ -711,6 +793,7 @@ class AIBISession(
         hiddenWebView?.apply {
             stopLoading()
             webViewClient = WebViewClient()
+            webChromeClient = WebChromeClient()
             (parent as? ViewGroup)?.removeView(this)
             destroy()
         }
@@ -724,7 +807,9 @@ class AIBISession(
                 settings.javaScriptEnabled = true
                 settings.domStorageEnabled = true
                 settings.databaseEnabled = true
+                settings.setSupportMultipleWindows(true)
                 webViewClient = createSecurityWebViewClient()
+                webChromeClient = createAttachmentWebChromeClient(this)
             }
             visibleWebView = webView
         }
@@ -739,10 +824,107 @@ class AIBISession(
         visibleWebView?.apply {
             stopLoading()
             webViewClient = WebViewClient()
+            webChromeClient = WebChromeClient()
             destroy()
         }
         visibleWebView = null
         _isVisibleBrowserPresented.value = false
+    }
+
+    private fun createAttachmentWebChromeClient(
+        popupTarget: WebView? = null
+    ): WebChromeClient = object : WebChromeClient() {
+        override fun onShowFileChooser(
+            webView: WebView?,
+            filePathCallback: ValueCallback<Array<Uri>>?,
+            fileChooserParams: FileChooserParams?
+        ): Boolean {
+            val callback = filePathCallback ?: return false
+            if (nativeAttachmentUris.isEmpty()) return false
+            if (fileChooserParams?.mode == FileChooserParams.MODE_OPEN_MULTIPLE) {
+                nativeAttachmentNextSingleIndex = nativeAttachmentUris.size
+                callback.onReceiveValue(nativeAttachmentUris.toTypedArray())
+            } else {
+                val next = nativeAttachmentUris.getOrNull(nativeAttachmentNextSingleIndex)
+                if (next == null) {
+                    callback.onReceiveValue(null)
+                } else {
+                    nativeAttachmentNextSingleIndex += 1
+                    callback.onReceiveValue(arrayOf(next))
+                }
+            }
+            return true
+        }
+
+        override fun onCreateWindow(
+            view: WebView?,
+            isDialog: Boolean,
+            isUserGesture: Boolean,
+            resultMsg: android.os.Message?
+        ): Boolean {
+            val target = popupTarget ?: return false
+            if (!isUserGesture) return false
+            val transport = resultMsg?.obj as? WebView.WebViewTransport ?: return false
+            val popup = WebView(context).apply {
+                settings.javaScriptEnabled = true
+                settings.domStorageEnabled = true
+                settings.databaseEnabled = true
+                webViewClient = object : WebViewClient() {
+                    override fun shouldOverrideUrlLoading(
+                        popupView: WebView?,
+                        request: WebResourceRequest?
+                    ): Boolean {
+                        val url = request?.url ?: return true
+                        if (url.toString() == "about:blank") return false
+                        val config = activeConfig ?: return true
+                        val allowed = originAllowed(url, config.allowedScriptOrigins) ||
+                            originAllowed(url, config.allowedAuthOrigins)
+                        if (allowed) {
+                            target.loadUrl(url.toString())
+                        } else {
+                            failWithError("This sign-in page is not in the allowed origin list.")
+                        }
+                        popupView?.stopLoading()
+                        popupView?.destroy()
+                        return true
+                    }
+                }
+            }
+            transport.webView = popup
+            resultMsg.sendToTarget()
+            return true
+        }
+    }
+
+    private fun prepareNativeAttachmentBatch(
+        attachments: List<AIBIMediaAttachment>
+    ): Pair<File?, List<Uri>> {
+        if (attachments.isEmpty()) return null to emptyList()
+        val root = File(context.cacheDir, "aibi").apply { mkdirs() }
+        root.listFiles()?.filter(File::isDirectory)?.forEach { stale ->
+            if (System.currentTimeMillis() - stale.lastModified() > 15 * 60 * 1_000L) {
+                stale.deleteRecursively()
+            }
+        }
+        val directory = File(root, "batch-${UUID.randomUUID()}").apply { mkdirs() }
+        return try {
+            val uris = attachments.sortedBy { it.sourceIndex }.mapIndexed { index, attachment ->
+                val file = File(directory, "aibi-${(index + 1).toString().padStart(2, '0')}.jpg")
+                file.writeBytes(attachment.data)
+                FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
+            }
+            directory to uris
+        } catch (error: Exception) {
+            directory.deleteRecursively()
+            throw error
+        }
+    }
+
+    private fun disposeNativeAttachmentBatch() {
+        nativeAttachmentDirectory?.deleteRecursively()
+        nativeAttachmentDirectory = null
+        nativeAttachmentUris = emptyList()
+        nativeAttachmentNextSingleIndex = 0
     }
 
     private fun createSecurityWebViewClient(): WebViewClient {
@@ -840,6 +1022,8 @@ class AIBISession(
                 "challengeIndicator" to config.selectors.challengeIndicator,
                 "attachmentInput" to config.selectors.attachmentInput,
                 "attachmentTrigger" to config.selectors.attachmentTrigger,
+                "attachmentMenuAction" to config.selectors.attachmentMenuAction,
+                "attachmentMenuActionText" to config.selectors.attachmentMenuActionText,
                 "attachmentPreview" to config.selectors.attachmentPreview
             )),
             "mediaCapabilities" to JSONObject(mapOf(

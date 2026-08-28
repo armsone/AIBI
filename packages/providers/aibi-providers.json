@@ -20,7 +20,7 @@
       ],
       "mediaCapabilities": {
         "supportsImages": true,
-        "maxImagesPerTask": 8,
+        "maxImagesPerTask": 20,
         "requiresMultipleInputForBatch": true
       },
       "selectors": {
@@ -61,8 +61,16 @@
         ],
         "loginIndicator": [
           "a[href*='accounts.google.com/ServiceLogin']",
+          "a[href*='accounts.google.com/InteractiveLogin']",
           "a[aria-label*='Sign in' i]",
           "button[aria-label*='로그인' i]"
+        ],
+        "authenticatedIndicator": [
+          "a[aria-label*='Google Account' i]",
+          "a[aria-label*='Google 계정' i]",
+          "a[href*='accounts.google.com/SignOutOptions']",
+          "a[href*='myaccount.google.com']",
+          "gem-user-menu"
         ],
         "challengeIndicator": [
           "iframe[src*='recaptcha']",
@@ -85,7 +93,24 @@
           "button[aria-label*='사진']",
           "button[aria-label*='파일 추가']"
         ],
+        "attachmentMenuAction": [
+          "images-files-uploader[data-test-id='uploader-images-files-button-advanced'] button",
+          "[data-test-id='uploader-images-files-button-advanced'] button",
+          "button[aria-label='파일']",
+          "[role='menuitem'][aria-label='파일']",
+          "button[aria-label='Files']",
+          "[role='menuitem'][aria-label='Files']"
+        ],
+        "attachmentMenuActionText": [
+          "파일",
+          "Files",
+          "Upload files",
+          "Upload from device"
+        ],
         "attachmentPreview": [
+          "button[aria-label='첨부파일 닫기']",
+          "button[aria-label='Remove attachment']",
+          "button[aria-label='Remove file']",
           "uploader-file-preview",
           ".attachment-preview-wrapper",
           ".file-preview-container",
@@ -96,7 +121,7 @@
       "quirks": {
         "isContentEditable": true,
         "requiresEnterEvent": false,
-        "notes": "Gemini uses Quill rich editor (ql-editor). Its current mobile upload menu is opened by the Korean '업로드 및 도구' button and exposes a document input before the image-only input, so image attachment must prefer accept=image."
+        "notes": "Gemini uses Quill rich editor (ql-editor). Its current mobile upload flow is nested: open '업로드 및 도구', then choose the visible '파일' action before WebKit presents the multiple file input. Image attachment must prefer accept=image."
       }
     },
     "chatgpt": {
@@ -117,7 +142,7 @@
       ],
       "mediaCapabilities": {
         "supportsImages": true,
-        "maxImagesPerTask": 8,
+        "maxImagesPerTask": 20,
         "requiresMultipleInputForBatch": true
       },
       "selectors": {
@@ -141,6 +166,9 @@
         "assistantMessage": [
           "[data-message-author-role='assistant']",
           "div.agent-turn",
+          "article[data-turn='assistant']",
+          "article[data-testid*='conversation-turn'] [data-message-author-role='assistant']",
+          "article[data-testid*='conversation-turn'] .markdown",
           "div[data-testid*='conversation-turn'] .markdown"
         ],
         "preCode": [
@@ -156,6 +184,13 @@
           "button[data-testid='login-button']",
           "a[href*='/auth/login']",
           "button:contains('Log in')"
+        ],
+        "authenticatedIndicator": [
+          "button[data-testid='profile-button']",
+          "button[data-testid='user-menu-button']",
+          "button[data-testid='user-menu']",
+          "button[data-testid='accounts-profile-button']",
+          "button[aria-label*='profile menu' i]"
         ],
         "challengeIndicator": [
           "#cf-challenge-running",
@@ -176,6 +211,12 @@
           "button[aria-label*='Add photos']",
           "button[aria-label*='사진']"
         ],
+        "attachmentMenuAction": [],
+        "attachmentMenuActionText": [
+          "사진",
+          "Photos",
+          "Upload photos"
+        ],
         "attachmentPreview": [
           "div[data-testid*='attachment']",
           "img[alt='Uploaded image']",
@@ -187,7 +228,7 @@
       },
       "quirks": {
         "lateDomReplacement": true,
-        "notes": "ChatGPT frequently replaces the prompt-textarea DOM node during initial hydration. If fill verification fails, reset fill state and re-locate node."
+        "notes": "ChatGPT frequently replaces the prompt-textarea DOM node during initial hydration. Its current mobile composer opens a nested plus menu; choose the visible Photos action before invoking the image file input. If fill verification fails, reset fill state and re-locate node."
       }
     },
     "claude": {
@@ -205,7 +246,7 @@
       ],
       "mediaCapabilities": {
         "supportsImages": true,
-        "maxImagesPerTask": 8,
+        "maxImagesPerTask": 20,
         "requiresMultipleInputForBatch": true
       },
       "selectors": {
@@ -244,6 +285,10 @@
           "input[type='email'][name='email']",
           "a[href*='/login']",
           "button[data-testid*='login']"
+        ],
+        "authenticatedIndicator": [
+          "button[data-testid='user-menu-button']",
+          "button[data-testid='user-menu']"
         ],
         "challengeIndicator": [
           "iframe[src*='cloudflare']",

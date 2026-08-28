@@ -123,13 +123,51 @@ public struct AIBIProviderSelectors: Codable, Equatable {
     public let challengeIndicator: [String]
     public var attachmentInput: [String]? = nil
     public var attachmentTrigger: [String]? = nil
+    public var attachmentMenuAction: [String]? = nil
+    public var attachmentMenuActionText: [String]? = nil
     public var attachmentPreview: [String]? = nil
+
+    public init(
+        promptInput: [String],
+        submitButton: [String],
+        stopButton: [String],
+        assistantMessage: [String],
+        preCode: [String]? = nil,
+        errorBanner: [String],
+        loginIndicator: [String],
+        challengeIndicator: [String],
+        attachmentInput: [String]? = nil,
+        attachmentTrigger: [String]? = nil,
+        attachmentMenuAction: [String]? = nil,
+        attachmentMenuActionText: [String]? = nil,
+        attachmentPreview: [String]? = nil
+    ) {
+        self.promptInput = promptInput
+        self.submitButton = submitButton
+        self.stopButton = stopButton
+        self.assistantMessage = assistantMessage
+        self.preCode = preCode
+        self.errorBanner = errorBanner
+        self.loginIndicator = loginIndicator
+        self.challengeIndicator = challengeIndicator
+        self.attachmentInput = attachmentInput
+        self.attachmentTrigger = attachmentTrigger
+        self.attachmentMenuAction = attachmentMenuAction
+        self.attachmentMenuActionText = attachmentMenuActionText
+        self.attachmentPreview = attachmentPreview
+    }
 }
 
 public struct AIBIMediaCapabilities: Codable, Equatable {
     public let supportsImages: Bool
     public let maxImagesPerTask: Int
     public let requiresMultipleInputForBatch: Bool
+
+    public init(supportsImages: Bool = false, maxImagesPerTask: Int = 0, requiresMultipleInputForBatch: Bool = true) {
+        self.supportsImages = supportsImages
+        self.maxImagesPerTask = maxImagesPerTask
+        self.requiresMultipleInputForBatch = requiresMultipleInputForBatch
+    }
 }
 
 public struct AIBIProviderConfig: Identifiable, Codable, Equatable {
@@ -140,6 +178,24 @@ public struct AIBIProviderConfig: Identifiable, Codable, Equatable {
     public let allowedAuthOrigins: [String]
     public let selectors: AIBIProviderSelectors
     public var mediaCapabilities: AIBIMediaCapabilities? = nil
+
+    public init(
+        id: String,
+        displayName: String,
+        initialUrl: String,
+        allowedScriptOrigins: [String],
+        allowedAuthOrigins: [String],
+        selectors: AIBIProviderSelectors,
+        mediaCapabilities: AIBIMediaCapabilities? = nil
+    ) {
+        self.id = id
+        self.displayName = displayName
+        self.initialUrl = initialUrl
+        self.allowedScriptOrigins = allowedScriptOrigins
+        self.allowedAuthOrigins = allowedAuthOrigins
+        self.selectors = selectors
+        self.mediaCapabilities = mediaCapabilities
+    }
 }
 
 // MARK: - Session Configuration & Timers Profile
@@ -194,6 +250,8 @@ public final class AIBISession: NSObject, ObservableObject {
     private var baselineAssistantCount: Int = 0
     private var stabilityText: String? = nil
     private var stabilityTickCount: Int = 0
+    private var pendingAttachmentURLs: [URL] = []
+    private var nativeAttachmentPanelHandled = false
 
     // Runtime JS Cache
     private var runtimeJavaScript: String = ""
@@ -283,6 +341,7 @@ public final class AIBISession: NSObject, ObservableObject {
     public func cancelCurrentTask() {
         stopAllTimers()
         generationId &+= 1
+        clearPendingAttachmentFiles()
         if currentPhase != .idle {
             updatePhase(.cancelled, message: "Cancelled")
         }
@@ -298,6 +357,7 @@ public final class AIBISession: NSObject, ObservableObject {
         activeProviderId = nil
         pendingResult = nil
         lastErrorMessage = nil
+        clearPendingAttachmentFiles()
         destroyHiddenBrowser()
         destroyVisibleBrowser()
         updatePhase(.idle, message: "Ready")
@@ -469,33 +529,115 @@ public final class AIBISession: NSObject, ObservableObject {
         let stateScript = "window.__AIBI_RUNTIME__.getAttachmentState(\(encodedConfig))"
         let baseline = (try? await evaluateScript(stateScript, on: webView)).flatMap(parseAttachmentPreviewCount) ?? 0
 
-        _ = try? await evaluateScript("window.__AIBI_RUNTIME__.prepareAttachmentInput(\(encodedConfig))", on: webView)
-        try? await Task.sleep(nanoseconds: 700_000_000)
+        if #available(iOS 18.4, *) {
+            do {
+                pendingAttachmentURLs = try makeTemporaryAttachmentFiles(attachments)
+                nativeAttachmentPanelHandled = false
+                for _ in 0..<3 where generationId == generation && !nativeAttachmentPanelHandled {
+                    _ = try? await evaluateScript(
+                        "window.__AIBI_RUNTIME__.prepareAttachmentInput(\(encodedConfig))",
+                        on: webView
+                    )
+                    _ = try? await evaluateScript(
+                        "window.__AIBI_RUNTIME__.openAttachmentPanel(\(encodedConfig))",
+                        on: webView
+                    )
+                    try? await Task.sleep(nanoseconds: 700_000_000)
+                }
+                if nativeAttachmentPanelHandled,
+                   await waitForAttachmentCount(
+                       baseline + attachments.count,
+                       stateScript: stateScript,
+                       webView: webView,
+                       generation: generation
+                   ) {
+                    clearPendingAttachmentFiles()
+                    return true
+                }
+                clearPendingAttachmentFiles()
+            } catch {
+                clearPendingAttachmentFiles()
+            }
+        }
+
+        for _ in 0..<2 where generationId == generation {
+            _ = try? await evaluateScript("window.__AIBI_RUNTIME__.prepareAttachmentInput(\(encodedConfig))", on: webView)
+            try? await Task.sleep(nanoseconds: 700_000_000)
+        }
         guard generationId == generation else { return false }
 
-        let payload: [[String: String]] = attachments.sorted { $0.sourceIndex < $1.sourceIndex }.map {
-            ["dataUrl": $0.dataURL, "mimeType": $0.mimeType, "filename": $0.filename]
-        }
-        guard let payloadData = try? JSONSerialization.data(withJSONObject: payload),
-              let payloadJson = String(data: payloadData, encoding: .utf8),
-              let attachResult = try? await evaluateScript(
-                "window.__AIBI_RUNTIME__.attachImages(\(encodedConfig), \(payloadJson))",
-                on: webView
-              ),
-              parseJson(attachResult)?["success"] as? Bool == true else {
+        let ordered = attachments.sorted { $0.sourceIndex < $1.sourceIndex }
+        guard let beginResult = try? await evaluateScript(
+            "window.__AIBI_RUNTIME__.beginAttachmentBatch(\(encodedConfig), \(ordered.count))",
+            on: webView
+        ), parseJson(beginResult)?["success"] as? Bool == true else {
             return false
         }
+        for (index, attachment) in ordered.enumerated() {
+            let image = ["dataUrl": attachment.dataURL, "mimeType": attachment.mimeType, "filename": attachment.filename]
+            guard let imageData = try? JSONSerialization.data(withJSONObject: image),
+                  let imageJson = String(data: imageData, encoding: .utf8),
+                  let staged = try? await evaluateScript(
+                    "window.__AIBI_RUNTIME__.stageAttachment(\(imageJson), \(index))",
+                    on: webView
+                  ),
+                  parseJson(staged)?["success"] as? Bool == true else {
+                _ = try? await evaluateScript("window.__AIBI_RUNTIME__.clearAttachmentBatch()", on: webView)
+                return false
+            }
+        }
+        guard let attachResult = try? await evaluateScript(
+            "window.__AIBI_RUNTIME__.commitAttachmentBatch(\(encodedConfig))",
+            on: webView
+        ), parseJson(attachResult)?["success"] as? Bool == true else { return false }
 
+        return await waitForAttachmentCount(
+            baseline + attachments.count,
+            stateScript: stateScript,
+            webView: webView,
+            generation: generation
+        )
+    }
+
+    private func waitForAttachmentCount(
+        _ expectedCount: Int,
+        stateScript: String,
+        webView: WKWebView,
+        generation: UInt64
+    ) async -> Bool {
         let deadline = Date().addingTimeInterval(timingProfile.attachmentTimeout)
         while generationId == generation && Date() < deadline {
             if let state = try? await evaluateScript(stateScript, on: webView),
                let count = parseAttachmentPreviewCount(state),
-               count >= baseline + attachments.count {
+               count == expectedCount {
                 return true
             }
             try? await Task.sleep(nanoseconds: UInt64(timingProfile.attachmentCadence * 1_000_000_000))
         }
         return false
+    }
+
+    private func makeTemporaryAttachmentFiles(_ attachments: [AIBIMediaAttachment]) throws -> [URL] {
+        clearPendingAttachmentFiles()
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("AIBIUploads-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        do {
+            return try attachments.sorted { $0.sourceIndex < $1.sourceIndex }.map { attachment in
+                let url = directory.appendingPathComponent(attachment.filename)
+                try attachment.data.write(to: url, options: .atomic)
+                return url
+            }
+        } catch {
+            try? FileManager.default.removeItem(at: directory)
+            throw error
+        }
+    }
+
+    private func clearPendingAttachmentFiles() {
+        let directories = Set(pendingAttachmentURLs.map { $0.deletingLastPathComponent() })
+        pendingAttachmentURLs = []
+        directories.forEach { try? FileManager.default.removeItem(at: $0) }
     }
 
     private func parseAttachmentPreviewCount(_ string: String) -> Int? {
@@ -695,12 +837,15 @@ public final class AIBISession: NSObject, ObservableObject {
     private func mountHiddenBrowser(in parent: UIView) {
         guard hiddenWebView == nil else { return }
         let webView = WKWebView(frame: CGRect(x: 0, y: 0, width: 375, height: 667), configuration: webConfiguration)
-        webView.isOpaque = false
-        webView.backgroundColor = .clear
-        webView.alpha = 0.001
+        // The host container is already mounted off-screen. Keep the WKWebView itself fully
+        // rendered so provider SPAs do not defer composer hydration because of near-zero alpha.
+        webView.isOpaque = true
+        webView.backgroundColor = .systemBackground
+        webView.alpha = 1
         webView.isUserInteractionEnabled = false
         webView.accessibilityElementsHidden = true
         webView.navigationDelegate = self
+        webView.uiDelegate = self
         parent.addSubview(webView)
         parent.sendSubviewToBack(webView)
         self.hiddenWebView = webView
@@ -709,6 +854,7 @@ public final class AIBISession: NSObject, ObservableObject {
     private func destroyHiddenBrowser() {
         hiddenWebView?.stopLoading()
         hiddenWebView?.navigationDelegate = nil
+        hiddenWebView?.uiDelegate = nil
         hiddenWebView?.removeFromSuperview()
         hiddenWebView = nil
     }
@@ -717,6 +863,7 @@ public final class AIBISession: NSObject, ObservableObject {
         if visibleWebView == nil {
             let webView = WKWebView(frame: .zero, configuration: webConfiguration)
             webView.navigationDelegate = self
+            webView.uiDelegate = self
             self.visibleWebView = webView
         }
         self.isVisibleBrowserPresented = true
@@ -729,6 +876,7 @@ public final class AIBISession: NSObject, ObservableObject {
     private func destroyVisibleBrowser() {
         visibleWebView?.stopLoading()
         visibleWebView?.navigationDelegate = nil
+        visibleWebView?.uiDelegate = nil
         visibleWebView = nil
         isVisibleBrowserPresented = false
     }
@@ -811,6 +959,13 @@ public final class AIBISession: NSObject, ObservableObject {
 
 extension AIBISession: WKNavigationDelegate {
     public func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction, decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
+        // Provider uploaders and auxiliary UI can navigate child frames to about:, blob:, or
+        // provider CDN origins. Scripts are never injected there, so security-gate only the
+        // main-frame navigation.
+        if navigationAction.targetFrame?.isMainFrame == false {
+            decisionHandler(.allow)
+            return
+        }
         guard let url = navigationAction.request.url,
               let config = activeConfig else {
             decisionHandler(.allow)
@@ -858,5 +1013,32 @@ extension AIBISession: WKNavigationDelegate {
         }
         let sanitized = "Network error: \(nsError.localizedDescription)"
         failWithError(sanitized)
+    }
+}
+
+// MARK: - Public WebKit File Panel Bridge
+
+extension AIBISession: WKUIDelegate {
+    @available(iOS 18.4, *)
+    public func webView(
+        _ webView: WKWebView,
+        runOpenPanelWith parameters: WKOpenPanelParameters,
+        initiatedByFrame frame: WKFrameInfo,
+        completionHandler: @escaping @MainActor @Sendable ([URL]?) -> Void
+    ) {
+        let urls = pendingAttachmentURLs
+        guard !urls.isEmpty, urls.count == 1 || parameters.allowsMultipleSelection else {
+            completionHandler(nil)
+            return
+        }
+        nativeAttachmentPanelHandled = true
+        pendingAttachmentURLs = []
+        completionHandler(urls)
+
+        let directories = Set(urls.map { $0.deletingLastPathComponent() })
+        Task {
+            try? await Task.sleep(nanoseconds: 60_000_000_000)
+            directories.forEach { try? FileManager.default.removeItem(at: $0) }
+        }
     }
 }

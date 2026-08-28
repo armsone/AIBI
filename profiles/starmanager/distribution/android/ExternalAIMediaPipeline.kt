@@ -1,45 +1,13 @@
-/**
- * AIBIMediaPipeline.kt
- * Ordered, privacy-preserving image preparation for AIBI tasks.
- */
-package com.aibi.core
+package com.armsone.starmanager.ui.externalai
 
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Matrix
 import android.media.ExifInterface
-import android.util.Base64
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 
-data class AIBIMediaAttachment(
-    val data: ByteArray,
-    val mimeType: String = "image/jpeg",
-    val filename: String,
-    val sourceIndex: Int,
-    val role: String? = null
-) {
-    fun dataUrl(): String = "data:$mimeType;base64," + Base64.encodeToString(data, Base64.NO_WRAP)
-
-    override fun equals(other: Any?): Boolean =
-        other is AIBIMediaAttachment &&
-            data.contentEquals(other.data) &&
-            mimeType == other.mimeType &&
-            filename == other.filename &&
-            sourceIndex == other.sourceIndex &&
-            role == other.role
-
-    override fun hashCode(): Int {
-        var result = data.contentHashCode()
-        result = 31 * result + mimeType.hashCode()
-        result = 31 * result + filename.hashCode()
-        result = 31 * result + sourceIndex
-        result = 31 * result + (role?.hashCode() ?: 0)
-        return result
-    }
-}
-
-data class AIBIImageNormalizationPolicy(
+data class ExternalAIImageNormalizationPolicy(
     val maximumImageCount: Int = 8,
     val maximumLongEdgePixels: Int = 2_048,
     val maximumBytesPerImage: Int = 2_000_000,
@@ -47,7 +15,7 @@ data class AIBIImageNormalizationPolicy(
     val minimumJpegQuality: Int = 50
 ) {
     init {
-        require(maximumImageCount in 1..20)
+        require(maximumImageCount in 1..8)
         require(maximumLongEdgePixels >= 512)
         require(maximumBytesPerImage >= 128_000)
         require(initialJpegQuality in 1..100)
@@ -55,39 +23,33 @@ data class AIBIImageNormalizationPolicy(
     }
 }
 
-class AIBIMediaPreparationException(message: String) : Exception(message)
+class ExternalAIMediaPreparationException(message: String) : Exception(message)
 
-object AIBIImageNormalizer {
-    /**
-     * Normalizes one image at a time. Original bytes are never mutated and decoded bitmaps are
-     * released before the next source is opened, keeping a twenty-photo task memory-bounded.
-     */
+/** 선택된 이미지를 순서대로, 한 장씩만 디코딩해 AIBI 전송 규격으로 정규화한다. */
+object ExternalAIImageNormalizer {
     fun normalizeOrdered(
         sourceImages: List<ByteArray>,
-        roles: List<String?> = emptyList(),
-        policy: AIBIImageNormalizationPolicy = AIBIImageNormalizationPolicy()
-    ): List<AIBIMediaAttachment> {
+        policy: ExternalAIImageNormalizationPolicy = ExternalAIImageNormalizationPolicy()
+    ): List<ExternalAIAttachment> {
         if (sourceImages.size > policy.maximumImageCount) {
-            throw AIBIMediaPreparationException("ATTACHMENT_LIMIT_EXCEEDED")
+            throw ExternalAIMediaPreparationException("ATTACHMENT_LIMIT_EXCEEDED")
         }
         return sourceImages.mapIndexed { index, source ->
-            val normalized = normalizeOne(source, policy)
-            AIBIMediaAttachment(
-                data = normalized,
+            ExternalAIAttachment(
+                data = normalizeOne(source, policy),
                 filename = "aibi-${(index + 1).toString().padStart(2, '0')}.jpg",
-                sourceIndex = index,
-                role = roles.getOrNull(index)?.trim()?.takeIf(String::isNotEmpty)?.take(64)
+                sourceIndex = index
             )
         }
     }
 
-    private fun normalizeOne(source: ByteArray, policy: AIBIImageNormalizationPolicy): ByteArray {
-        if (source.isEmpty()) throw AIBIMediaPreparationException("EMPTY_IMAGE")
+    private fun normalizeOne(source: ByteArray, policy: ExternalAIImageNormalizationPolicy): ByteArray {
+        if (source.isEmpty()) throw ExternalAIMediaPreparationException("EMPTY_IMAGE")
 
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
         BitmapFactory.decodeByteArray(source, 0, source.size, bounds)
         if (bounds.outWidth <= 0 || bounds.outHeight <= 0) {
-            throw AIBIMediaPreparationException("UNSUPPORTED_IMAGE")
+            throw ExternalAIMediaPreparationException("UNSUPPORTED_IMAGE")
         }
 
         var sampleSize = 1
@@ -99,13 +61,14 @@ object AIBIImageNormalizer {
             0,
             source.size,
             BitmapFactory.Options().apply { inSampleSize = sampleSize }
-        ) ?: throw AIBIMediaPreparationException("IMAGE_DECODE_FAILED")
+        ) ?: throw ExternalAIMediaPreparationException("IMAGE_DECODE_FAILED")
 
         var bitmap = applyExifOrientation(decoded, source)
         if (bitmap !== decoded) decoded.recycle()
         val scaled = scaleToLongEdge(bitmap, policy.maximumLongEdgePixels)
         if (scaled !== bitmap) bitmap.recycle()
         bitmap = scaled
+
         try {
             var quality = policy.initialJpegQuality
             var encoded = encodeJpeg(bitmap, quality)
@@ -125,24 +88,12 @@ object AIBIImageNormalizer {
                 encoded = encodeJpeg(bitmap, quality)
             }
             if (encoded.size > policy.maximumBytesPerImage) {
-                throw AIBIMediaPreparationException("IMAGE_SIZE_TARGET_UNREACHABLE")
+                throw ExternalAIMediaPreparationException("IMAGE_SIZE_TARGET_UNREACHABLE")
             }
             return encoded
         } finally {
             bitmap.recycle()
         }
-    }
-
-    private fun scaleToLongEdge(bitmap: Bitmap, maximumLongEdge: Int): Bitmap {
-        val longEdge = maxOf(bitmap.width, bitmap.height)
-        if (longEdge <= maximumLongEdge) return bitmap
-        val ratio = maximumLongEdge.toFloat() / longEdge.toFloat()
-        return Bitmap.createScaledBitmap(
-            bitmap,
-            maxOf(1, (bitmap.width * ratio).toInt()),
-            maxOf(1, (bitmap.height * ratio).toInt()),
-            true
-        )
     }
 
     private fun applyExifOrientation(bitmap: Bitmap, source: ByteArray): Bitmap {
@@ -166,10 +117,22 @@ object AIBIImageNormalizer {
         return Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true)
     }
 
+    private fun scaleToLongEdge(bitmap: Bitmap, maximumLongEdge: Int): Bitmap {
+        val longEdge = maxOf(bitmap.width, bitmap.height)
+        if (longEdge <= maximumLongEdge) return bitmap
+        val ratio = maximumLongEdge.toFloat() / longEdge.toFloat()
+        return Bitmap.createScaledBitmap(
+            bitmap,
+            maxOf(1, (bitmap.width * ratio).toInt()),
+            maxOf(1, (bitmap.height * ratio).toInt()),
+            true
+        )
+    }
+
     private fun encodeJpeg(bitmap: Bitmap, quality: Int): ByteArray {
         val output = ByteArrayOutputStream()
         if (!bitmap.compress(Bitmap.CompressFormat.JPEG, quality, output)) {
-            throw AIBIMediaPreparationException("IMAGE_ENCODE_FAILED")
+            throw ExternalAIMediaPreparationException("IMAGE_ENCODE_FAILED")
         }
         return output.toByteArray()
     }

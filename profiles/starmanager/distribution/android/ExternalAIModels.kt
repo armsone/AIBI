@@ -11,18 +11,20 @@ enum class ExternalAISurfaceMode {
 enum class ExternalAIAuthState(val label: String) {
     CHECKING("확인 중"),
     LOGGED_IN("로그인됨"),
-    REQUIRES_LOGIN("로그인 필요");
+    REQUIRES_LOGIN("로그인 필요"),
+    UNKNOWN("확인 안 됨");
 
     val isChecking: Boolean get() = this == CHECKING
     val isLoggedIn: Boolean get() = this == LOGGED_IN
     val requiresLogin: Boolean get() = this == REQUIRES_LOGIN
 }
 
-/** 외부 AI 첨부용 대표 이미지 데이터 */
+/** 외부 AI 첨부용 정규화 이미지 데이터 */
 data class ExternalAIAttachment(
     val data: ByteArray,
     val mimeType: String = "image/jpeg",
-    val filename: String = "representative_photo.jpg"
+    val filename: String = "aibi-01.jpg",
+    val sourceIndex: Int = 0
 ) {
     val dataUrl: String
         get() {
@@ -34,13 +36,15 @@ data class ExternalAIAttachment(
         if (this === other) return true
         if (javaClass != other?.javaClass) return false
         other as ExternalAIAttachment
-        return data.contentEquals(other.data) && mimeType == other.mimeType && filename == other.filename
+        return data.contentEquals(other.data) && mimeType == other.mimeType &&
+            filename == other.filename && sourceIndex == other.sourceIndex
     }
 
     override fun hashCode(): Int {
         var result = data.contentHashCode()
         result = 31 * result + mimeType.hashCode()
         result = 31 * result + filename.hashCode()
+        result = 31 * result + sourceIndex
         return result
     }
 }
@@ -92,8 +96,8 @@ enum class ExternalAIFallbackReason(
         detailText = "보안 확인을 마치면 자동으로 글을 이어서 써요."
     ),
     ATTACHMENT_FAILED(
-        bannerText = "대표 사진을 직접 첨부해 주세요",
-        detailText = "사진을 첨부하고 보내기를 누르면 이어서 글을 써요."
+        bannerText = "선택한 사진을 모두 첨부해 주세요",
+        detailText = "화면의 첨부 버튼으로 선택한 사진을 모두 추가하면 이어서 자동으로 진행돼요."
     ),
     MANUAL_INPUT_REQUIRED(
         bannerText = "입력창을 찾지 못했어요",
@@ -118,7 +122,8 @@ data class ExternalAITimingProfile(
     val readinessTimeoutMs: Long = 35_000L,
     val readinessCadenceMs: Long = 700L,
     val maxReadinessMisses: Int = 12, // 약 8.4초 동안 입력창 미발견 시 폴백
-    val attachmentTimeoutMs: Long = 10_000L,
+    val attachmentTimeoutMs: Long = 30_000L,
+    val attachmentCadenceMs: Long = 350L,
     val submitTimeoutMs: Long = 15_000L,
     val submitCadenceMs: Long = 500L,
     val submitVerificationDelayMs: Long = 700L,
@@ -146,6 +151,8 @@ data class ExternalAIInjectionResult(
 
 data class ExternalAIAttachmentResult(
     val success: Boolean,
+    val inputFound: Boolean = false,
+    val acceptedCount: Int = 0,
     val error: String? = null
 )
 

@@ -18,6 +18,7 @@ AIBI(AI Browser Interface)는 사용자가 공식 AI 웹사이트에 직접 로�
 4. `브라우저 보기`가 켜져 있으면 입력·전송·생성 과정을 처음부터 볼 수 있습니다.
 5. 숨김 실행 중 로그인·보안 확인·수동 조작이 필요할 때만 같은 작업을 보이는 브라우저로 안전하게 넘깁니다.
 6. 텍스트와 지원 미디어를 제공자 규칙에 맞게 입력하고, 실제 전송 여부를 확인합니다.
+   미디어 작업은 순서가 있는 사진 최대 8장을 전송용 사본으로 자동 축소하며, 전부 첨부된 경우에만 전송합니다.
 7. 스트리밍 중간값이 아니라 완료되어 안정된 최종 결과만 가져옵니다.
 8. 결과를 호스트 앱의 검증 규칙에 통과시킨 뒤 한 번만 반영하고 브라우저를 닫습니다.
 9. 취소·시간 초과·페이지 변경·제공자 오류에서도 이전 작업의 늦은 콜백이 새 작업을 오염시키지 않습니다.
@@ -27,10 +28,11 @@ AIBI(AI Browser Interface)는 사용자가 공식 AI 웹사이트에 직접 로�
 
 - `docs/portable-contract.md`: 모든 앱이 지켜야 하는 공통 결과 계약
 - `docs/provider-change-playbook.md`: AI 웹 화면 변경에 대응하는 절차
+- `docs/media-attachments.md`: 최대 8장 자동 축소·원자적 첨부의 독립 계약과 이식 경계
 - `profiles/starmanager.md`: 스타매니저에만 해당하는 제품 요구
 - `skill-source.md`: Codex AIBI 스킬이 따라야 하는 작업 순서와 경계
 
-구현 자산과 플랫폼별 세부 자료는 현재 설치된 Codex 스킬 `/Users/armsone/.codex/skills/aibi`에 있으며, 이후 이 프로젝트의 `packages/`, `providers/`, `fixtures/`로 점진적으로 승격합니다.
+공통 엔진과 플랫폼별 미디어 파이프라인은 `packages/`, 개인정보를 제거한 provider 회귀 상태는 `fixtures/`에 있습니다. 설치된 Codex 스킬 `/Users/armsone/.codex/skills/aibi`는 이 기준 원본과 동기화합니다.
 
 ## 이식 앱 업데이트
 

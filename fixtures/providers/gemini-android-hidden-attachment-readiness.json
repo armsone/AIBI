@@ -1,0 +1,23 @@
+{
+  "fixture": "gemini-android-hidden-attachment-readiness",
+  "sanitized": true,
+  "provider": "gemini",
+  "platform": "android",
+  "scenario": "The main document is injectable before the attachment trigger portal is hydrated.",
+  "observations": [
+    {
+      "elapsedMs": 0,
+      "mainDocumentReady": true,
+      "attachmentTriggerFound": false,
+      "expectedAction": "retry_hidden"
+    },
+    {
+      "elapsedMs": 2100,
+      "mainDocumentReady": true,
+      "attachmentTriggerFound": true,
+      "expectedAction": "continue_hidden_attachment"
+    }
+  ],
+  "forbiddenAction": "immediate_visible_fallback",
+  "privacy": "No prompt, media, account, cookie, session token, or generated answer is included."
+}

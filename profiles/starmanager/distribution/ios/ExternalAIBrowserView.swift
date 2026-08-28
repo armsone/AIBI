@@ -63,20 +63,6 @@ enum ExternalAIFallbackReason: String, Identifiable, Sendable {
     }
 }
 
-/// 작성기에서 스냅샷한 대표 사진 한 장. 외부 AI 버튼을 누른 시점에만 만들어지며,
-/// 진행 중인 요청이 이후의 미디어 편집에 영향받지 않도록 값으로만 전달된다.
-struct ExternalAIAttachment: Sendable, Equatable {
-    let data: Data
-    let mimeType: String
-    let filename: String
-
-    init(data: Data, mimeType: String = "image/jpeg", filename: String = "photo.jpg") {
-        self.data = data
-        self.mimeType = mimeType
-        self.filename = filename
-    }
-}
-
 struct ExternalAIBrowserContext: Identifiable, Sendable, Equatable {
     let id = UUID()
     let provider: ExternalAIProvider
@@ -94,7 +80,7 @@ struct ExternalAIBrowserContext: Identifiable, Sendable, Equatable {
 struct ExternalAIHiddenAutomatorView: View {
     let provider: ExternalAIProvider
     let prompt: String
-    var attachment: ExternalAIAttachment? = nil
+    var attachments: [AIBIMediaAttachment] = []
     let generationID: UUID?
     var onSubmitted: ((Date) -> Void)? = nil
     let onSuccess: (String) -> Void
@@ -169,15 +155,14 @@ struct ExternalAIHiddenAutomatorView: View {
                 return
             }
 
-            // 대표 사진이 있는데 숨김 자동화가 안전하게 첨부하지 못하면, 사진을 빼고 글만 조용히
-            // 보내지 않고 곧바로 보이는 브라우저로 넘겨 사용자가 직접 첨부하게 한다.
-            if let attachment, !attachConfirmed, bridge.isPageReady {
+            // 선택한 사진 전부를 원자적으로 첨부하지 못하면 사진을 빼고 글만 보내지 않는다.
+            if !attachments.isEmpty, !attachConfirmed, bridge.isPageReady {
                 if !hasAttemptedAttach {
                     hasAttemptedAttach = true
-                    attachConfirmed = await bridge.attachPhoto(attachment, provider: provider)
+                    attachConfirmed = await bridge.attachPhotos(attachments, provider: provider)
                     if !attachConfirmed {
                         try? await Task.sleep(nanoseconds: 500_000_000)
-                        attachConfirmed = await bridge.isAttachmentConfirmed()
+                        attachConfirmed = await bridge.isAttachmentCountConfirmed(attachments.count)
                     }
                 }
                 if !attachConfirmed {
@@ -187,7 +172,7 @@ struct ExternalAIHiddenAutomatorView: View {
                 }
             }
 
-            if bridge.isPageReady, attachment == nil || attachConfirmed {
+            if bridge.isPageReady, attachments.isEmpty || attachConfirmed {
                 checkCount += 1
                 let filled = await bridge.fillPrompt(prompt, force: false)
                 if filled {
@@ -235,7 +220,7 @@ struct ExternalAIHiddenAutomatorView: View {
 struct ExternalAIBrowserSheet: View {
     let provider: ExternalAIProvider
     let prompt: String
-    var attachment: ExternalAIAttachment? = nil
+    var attachments: [AIBIMediaAttachment] = []
     var fallbackReason: ExternalAIFallbackReason? = nil
     var onSubmitted: ((Date) -> Void)? = nil
     var onError: ((String) -> Void)? = nil
@@ -396,10 +381,10 @@ struct ExternalAIBrowserSheet: View {
                 .padding(.top, 1)
 
             VStack(alignment: .leading, spacing: 2) {
-                Text("대표 사진을 직접 첨부해 주세요")
+                Text("선택한 사진을 모두 첨부해 주세요")
                     .font(.subheadline.weight(.bold))
                     .foregroundStyle(.primary)
-                Text("화면의 첨부 버튼을 한 번 눌러 사진을 추가하면 이어서 자동으로 진행돼요.")
+                Text("화면의 첨부 버튼으로 사진 \(attachments.count)장을 모두 추가하면 이어서 자동으로 진행돼요.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -518,17 +503,17 @@ struct ExternalAIBrowserSheet: View {
     /// 여부를 돌려준다. 자동 첨부가 실패하면 배너로 사용자에게 직접 첨부를 안내하고,
     /// 이후 호출에서 사용자가 직접 첨부했는지를 다시 확인한다.
     private func attachPhotoIfNeeded() async -> Bool {
-        guard let attachment else { return true }
+        guard !attachments.isEmpty else { return true }
         if attachConfirmed { return true }
         if !hasAttemptedAttach {
             hasAttemptedAttach = true
-            attachConfirmed = await bridge.attachPhoto(attachment, provider: provider)
+            attachConfirmed = await bridge.attachPhotos(attachments, provider: provider)
             if !attachConfirmed {
                 try? await Task.sleep(nanoseconds: 500_000_000)
             }
         }
         if !attachConfirmed {
-            attachConfirmed = await bridge.isAttachmentConfirmed()
+            attachConfirmed = await bridge.isAttachmentCountConfirmed(attachments.count)
         }
         needsManualAttach = !attachConfirmed
         return attachConfirmed
@@ -866,10 +851,22 @@ struct ExternalAILoginSheet: View {
     private func confirmLogin() {
         guard !didConfirmLogin else { return }
         didConfirmLogin = true
-        onLoginConfirmed?()
         Task {
+            // 새로 발급된 세션 쿠키가 같은 WKWebsiteDataStore.default()를 공유하는
+            // 다른 웹뷰(상태 확인 프로브, 숨겨진 자동화 뷰)에도 즉시 반영되도록
+            // 커밋을 강제한 뒤에 로그인 확정을 알린다.
+            await Self.flushSharedWebsiteDataStore()
+            onLoginConfirmed?()
             try? await Task.sleep(nanoseconds: 700_000_000)
             dismissOnce()
+        }
+    }
+
+    private static func flushSharedWebsiteDataStore() async {
+        await withCheckedContinuation { continuation in
+            WKWebsiteDataStore.default().httpCookieStore.getAllCookies { _ in
+                continuation.resume()
+            }
         }
     }
 }
@@ -1021,7 +1018,7 @@ final class ExternalAIBrowserBridge: ObservableObject {
     @Published fileprivate(set) var detectedError: String?
 
     fileprivate weak var webView: WKWebView?
-    fileprivate var pendingAttachmentURL: URL?
+    fileprivate var pendingAttachmentURLs: [URL] = []
     fileprivate var nativeUploadPanelHandled = false
 
     func checkURLForInteraction(_ urlString: String) {
@@ -1067,76 +1064,114 @@ final class ExternalAIBrowserBridge: ObservableObject {
         }
     }
 
-    /// iOS 18.4 이상에서는 WebKit의 공식 파일 선택 콜백에 앱이 만든 임시 파일 URL을
-    /// 전달한다. 제공사가 JavaScript `FileList` 변경을 무시할 때도 실제 업로드 흐름을 탄다.
-    /// 이전 버전이나 콜백을 열지 않는 페이지에서는 기존 DataTransfer 방식을 사용한다.
-    func attachPhoto(_ attachment: ExternalAIAttachment, provider: ExternalAIProvider) async -> Bool {
-        guard let webView else { return false }
+    /// 선택한 1~8장의 정규화 사본을 한 배치로 연결하고, 미리보기 수가 정확히
+    /// 그만큼 늘어난 경우에만 성공한다. 일부 사진만 올라간 상태에서는 전송하지 않는다.
+    func attachPhotos(_ attachments: [AIBIMediaAttachment], provider: ExternalAIProvider) async -> Bool {
+        guard let webView, (1...8).contains(attachments.count) else { return false }
+        let ordered = attachments.sorted { $0.sourceIndex < $1.sourceIndex }
+        guard ordered.map(\.sourceIndex) == Array(0..<ordered.count) else { return false }
+        let baseline = await attachmentPreviewCount() ?? 0
+        let expectedCount = baseline + ordered.count
+
         if #available(iOS 18.4, *) {
             do {
-                let directory = FileManager.default.temporaryDirectory
-                    .appendingPathComponent("AIBIUploads", isDirectory: true)
-                try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-                let safeFilename = (attachment.filename as NSString).lastPathComponent
-                let fileURL = directory.appendingPathComponent("\(UUID().uuidString)-\(safeFilename)")
-                try attachment.data.write(to: fileURL, options: .atomic)
-                pendingAttachmentURL = fileURL
+                pendingAttachmentURLs = try makeTemporaryAttachmentFiles(ordered)
                 nativeUploadPanelHandled = false
-                let script = ExternalAIBrowserScripts.openPhotoPanelScript(for: provider)
-                _ = try await webView.evaluateJavaScript(script)
-                try? await Task.sleep(nanoseconds: 250_000_000)
-                if nativeUploadPanelHandled {
-                    if await waitForAttachmentConfirmation() { return true }
+                for _ in 0..<4 where !nativeUploadPanelHandled {
+                    _ = try? await webView.evaluateJavaScript(
+                        ExternalAIBrowserScripts.advancePhotoPanelScript(for: provider)
+                    )
+                    try? await Task.sleep(nanoseconds: 700_000_000)
                 }
+                if nativeUploadPanelHandled,
+                   await waitForAttachmentCount(expectedCount) {
+                    clearPendingAttachmentFiles()
+                    return true
+                }
+                clearPendingAttachmentFiles()
             } catch {
-                pendingAttachmentURL = nil
+                clearPendingAttachmentFiles()
                 nativeUploadPanelHandled = false
             }
         }
 
-        let dataURL = "data:\(attachment.mimeType);base64,\(attachment.data.base64EncodedString())"
-        let script = """
-        return await (window.__starManagerAttachPhoto ? window.__starManagerAttachPhoto(\
-        \(ExternalAIBrowserScripts.jsStringLiteral(dataURL)), \
-        \(ExternalAIBrowserScripts.jsStringLiteral(attachment.mimeType)), \
-        \(ExternalAIBrowserScripts.jsStringLiteral(attachment.filename))) : false);
-        """
         do {
-            let result = try await webView.callAsyncJavaScript(
-                script,
-                arguments: [:],
-                in: nil,
-                contentWorld: .page
+            let began = try await webView.evaluateJavaScript(
+                "window.__starManagerBeginAttachmentBatch && window.__starManagerBeginAttachmentBatch(\(ordered.count));"
             )
-            guard Self.boolean(from: result) else { return false }
-            // ChatGPT의 최신 작성기는 업로드 입력을 즉시 숨기므로 썸네일이 보이기 전에
-            // 확인 선택자가 사라질 수 있다. FileList 연결과 change 처리가 성공했다면
-            // 전송 단계로 진행하고, 실제 실패는 제공사 오류/응답 감시가 처리한다.
-            try? await Task.sleep(nanoseconds: 2_000_000_000)
-            return true
+            guard Self.boolean(from: began) else { return false }
+            for (index, attachment) in ordered.enumerated() {
+                let result = try await webView.callAsyncJavaScript(
+                    "return window.__starManagerStageAttachment && window.__starManagerStageAttachment(dataURL, mime, index);",
+                    arguments: [
+                        "dataURL": attachment.dataURL,
+                        "mime": attachment.mimeType,
+                        "index": index
+                    ],
+                    in: nil,
+                    contentWorld: .page
+                )
+                guard Self.boolean(from: result) else {
+                    _ = try? await webView.evaluateJavaScript("window.__starManagerClearAttachmentBatch && window.__starManagerClearAttachmentBatch();")
+                    return false
+                }
+            }
+            let committed = try await webView.evaluateJavaScript(
+                "window.__starManagerCommitAttachmentBatch && window.__starManagerCommitAttachmentBatch();"
+            )
+            guard Self.boolean(from: committed) else { return false }
+            return await waitForAttachmentCount(expectedCount)
         } catch {
+            _ = try? await webView.evaluateJavaScript("window.__starManagerClearAttachmentBatch && window.__starManagerClearAttachmentBatch();")
             return false
         }
     }
 
-    private func waitForAttachmentConfirmation() async -> Bool {
-        for _ in 0..<20 {
-            if await isAttachmentConfirmed() { return true }
+    private func makeTemporaryAttachmentFiles(_ attachments: [AIBIMediaAttachment]) throws -> [URL] {
+        clearPendingAttachmentFiles()
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("AIBIUploads-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        do {
+            return try attachments.map { attachment in
+                let fileURL = directory.appendingPathComponent(attachment.filename)
+                try attachment.data.write(to: fileURL, options: .atomic)
+                return fileURL
+            }
+        } catch {
+            try? FileManager.default.removeItem(at: directory)
+            throw error
+        }
+    }
+
+    private func clearPendingAttachmentFiles() {
+        let directories = Set(pendingAttachmentURLs.map { $0.deletingLastPathComponent() })
+        pendingAttachmentURLs = []
+        directories.forEach { try? FileManager.default.removeItem(at: $0) }
+    }
+
+    private func waitForAttachmentCount(_ expectedCount: Int) async -> Bool {
+        for _ in 0..<80 {
+            if await attachmentPreviewCount() == expectedCount { return true }
             try? await Task.sleep(nanoseconds: 250_000_000)
         }
         return false
     }
 
-    /// 화면에 사진 미리보기(썸네일)가 나타났는지로 첨부 성공 여부를 확인한다.
-    func isAttachmentConfirmed() async -> Bool {
-        guard let webView else { return false }
+    func isAttachmentCountConfirmed(_ expectedCount: Int) async -> Bool {
+        await attachmentPreviewCount() == expectedCount
+    }
+
+    private func attachmentPreviewCount() async -> Int? {
+        guard let webView else { return nil }
         do {
             let result = try await webView.evaluateJavaScript(
-                "window.__starManagerAttachmentConfirmed ? window.__starManagerAttachmentConfirmed() : false;"
+                "window.__starManagerAttachmentCount ? window.__starManagerAttachmentCount() : -1;"
             )
-            return Self.boolean(from: result)
+            if let number = result as? NSNumber { return number.intValue }
+            return result as? Int
         } catch {
-            return false
+            return nil
         }
     }
 
@@ -1163,6 +1198,8 @@ final class ExternalAIBrowserBridge: ObservableObject {
     }
 
     fileprivate func resetForNewNavigation() {
+        clearPendingAttachmentFiles()
+        nativeUploadPanelHandled = false
         isPageReady = false
         isGenerating = false
         isAnswerStable = false
@@ -1281,17 +1318,14 @@ private struct ExternalAIWebView: UIViewRepresentable {
             initiatedByFrame frame: WKFrameInfo,
             completionHandler: @escaping @MainActor @Sendable ([URL]?) -> Void
         ) {
-            guard let fileURL = bridge.pendingAttachmentURL else {
+            let fileURLs = bridge.pendingAttachmentURLs
+            guard !fileURLs.isEmpty,
+                  fileURLs.count == 1 || parameters.allowsMultipleSelection else {
                 completionHandler(nil)
                 return
             }
             bridge.nativeUploadPanelHandled = true
-            bridge.pendingAttachmentURL = nil
-            completionHandler([fileURL])
-            Task {
-                try? await Task.sleep(nanoseconds: 60_000_000_000)
-                try? FileManager.default.removeItem(at: fileURL)
-            }
+            completionHandler(fileURLs)
         }
 
         func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
@@ -1390,6 +1424,83 @@ private enum ExternalAIBrowserScripts {
         """
     }
 
+    /// Gemini mobile처럼 `업로드 및 도구 → 파일 → 파일 입력`의 중첩 메뉴를 쓰는
+    /// 제공자도 한 단계씩 전진시킨다. 실제 파일 URL은 WKUIDelegate가 전달한다.
+    static func advancePhotoPanelScript(for provider: ExternalAIProvider) -> String {
+        let config = selectors(for: provider)
+        let menuSelectors: [String]
+        let menuTexts: [String]
+        switch provider {
+        case .gemini:
+            menuSelectors = [
+                "button[aria-label='파일']",
+                "[role='menuitem'][aria-label='파일']",
+                "button[aria-label='Files']",
+                "[role='menuitem'][aria-label='Files']",
+                "button[data-test-id*='upload-file']",
+                "[data-test-id*='upload-file'][role='menuitem']"
+            ]
+            menuTexts = ["파일", "Files", "Upload files", "Upload from device"]
+        default:
+            menuSelectors = []
+            menuTexts = []
+        }
+        return """
+        (function() {
+          const fileSelectors = \(jsArray(config.fileInput));
+          const triggerSelectors = \(jsArray(config.attachTrigger));
+          const menuSelectors = \(jsArray(menuSelectors));
+          const menuTexts = new Set(\(jsArray(menuTexts)).map(function(value) {
+            return value.trim().toLocaleLowerCase();
+          }));
+
+          function visible(element) {
+            if (!element) return false;
+            const style = window.getComputedStyle(element);
+            return style.display !== 'none' && style.visibility !== 'hidden' &&
+              style.opacity !== '0' && element.getClientRects().length > 0;
+          }
+          function first(selectors, requireVisible) {
+            for (const selector of selectors) {
+              try {
+                for (const element of document.querySelectorAll(selector)) {
+                  if (!element.disabled && (!requireVisible || visible(element))) return element;
+                }
+              } catch (e) {}
+            }
+            return null;
+          }
+
+          const input = first(fileSelectors, false);
+          if (input) { input.click(); return 'input'; }
+
+          let menuAction = first(menuSelectors, true);
+          if (!menuAction && menuTexts.size > 0) {
+            const candidates = document.querySelectorAll(
+              "button, [role='menuitem'], [role='option'], [mat-menu-item], [data-test-id]"
+            );
+            menuAction = Array.from(candidates).find(function(element) {
+              if (!visible(element)) return false;
+              const values = [
+                element.getAttribute('aria-label'),
+                element.getAttribute('title'),
+                element.innerText,
+                element.textContent
+              ];
+              return values.some(function(value) {
+                return value && menuTexts.has(value.trim().toLocaleLowerCase());
+              });
+            }) || null;
+          }
+          if (menuAction) { menuAction.click(); return 'menu-action'; }
+
+          const trigger = first(triggerSelectors, true);
+          if (trigger) { trigger.click(); return 'trigger'; }
+          return 'missing';
+        })();
+        """
+    }
+
     static func observerScript(for provider: ExternalAIProvider) -> String {
         let config = selectors(for: provider)
         return """
@@ -1460,73 +1571,72 @@ private enum ExternalAIBrowserScripts {
             return (element.innerText || element.textContent || '').trim();
           }
 
-          // 대표 사진을 첨부 입력에 연결한다. 숨겨진 파일 입력을 바로 찾지 못하면
-          // 첨부 버튼을 한 번 눌러 드러낸 뒤 다시 찾는다. DataTransfer로 File을 구성해
-          // input.files에 넣는 표준 DOM API만 사용하며, 자동 전송은 하지 않는다.
-          window.__starManagerAttachPhoto = function(dataURL, mime, filename) {
-            var input = queryFileInput();
-            var afterTrigger = function(input) {
-              return Promise.resolve().then(function() {
-                  // ChatGPT wraps fetch and rejects data: URLs. Decode locally so every provider
-                  // receives the same File without depending on page network hooks.
-                  var comma = dataURL.indexOf(',');
-                  if (comma < 0) throw new Error('INVALID_DATA_URL');
-                  var header = dataURL.slice(0, comma);
-                  var payload = dataURL.slice(comma + 1);
-                  var binary = /;base64/i.test(header) ? atob(payload) : decodeURIComponent(payload);
-                  var bytes = new Uint8Array(binary.length);
-                  for (var b = 0; b < binary.length; b++) bytes[b] = binary.charCodeAt(b);
-                  return new Blob([bytes], { type: mime });
-                })
-                .then(function(blob) {
-                  var file = new File([blob], filename, { type: mime });
-                  var dt = new DataTransfer();
-                  dt.items.add(file);
-                  input.files = dt.files;
-                  input.dispatchEvent(new Event('change', { bubbles: true }));
-                  input.dispatchEvent(new Event('input', { bubbles: true }));
-                  return new Promise(function(resolve) {
-                    setTimeout(function() {
-                      if (queryAll(attachmentConfirmedSelectors).some(isVisible)) {
-                        resolve(true);
-                        return;
-                      }
-                      // Some ChatGPT builds ignore synthetic file-input changes in WKWebView,
-                      // but use the same supported image-upload path for pasted image files.
-                      // Dispatch the file as a paste on the active composer as a second DOM path.
-                      var composer = queryFirst(inputSelectors);
-                      if (composer) {
-                        try {
-                          var pasteEvent = new Event('paste', { bubbles: true, cancelable: true });
-                          Object.defineProperty(pasteEvent, 'clipboardData', { value: dt });
-                          composer.dispatchEvent(pasteEvent);
-                        } catch (e) {}
-                      }
-                      resolve(true);
-                    }, 800);
-                  });
-                })
-                .catch(function() { return false; });
-            };
-            if (input) {
-              return afterTrigger(input);
-            }
-            var trigger = queryFirst(attachTriggerSelectors);
-            if (!trigger) { return Promise.resolve(false); }
-            trigger.focus();
-            trigger.click();
-            return new Promise(function(resolve) {
-              setTimeout(function() {
-                var revealed = queryFileInput();
-                if (!revealed) { resolve(false); return; }
-                afterTrigger(revealed).then(resolve);
-              }, 700);
-            });
+          function attachmentCount() {
+            return queryAll(attachmentConfirmedSelectors).filter(isVisible).length;
+          }
+
+          function fileFromDataURL(dataURL, mime, filename) {
+            var comma = dataURL.indexOf(',');
+            if (comma < 0) throw new Error('INVALID_DATA_URL');
+            var header = dataURL.slice(0, comma);
+            var payload = dataURL.slice(comma + 1);
+            var binary = /;base64/i.test(header) ? atob(payload) : decodeURIComponent(payload);
+            var bytes = new Uint8Array(binary.length);
+            for (var b = 0; b < binary.length; b++) bytes[b] = binary.charCodeAt(b);
+            return new File([bytes], filename, { type: mime });
+          }
+
+          // 각 사진은 브리지 용량을 제한하기 위해 한 장씩 스테이징하지만, 제공사 입력에는
+          // 선택 순서가 보존된 단일 DataTransfer 배치로 한 번만 연결한다.
+          window.__starManagerBeginAttachmentBatch = function(expectedCount) {
+            if (!Number.isInteger(expectedCount) || expectedCount < 1 || expectedCount > 8) return false;
+            window.__starManagerAttachmentBatch = { expectedCount: expectedCount, files: [] };
+            return true;
           };
 
-          window.__starManagerAttachmentConfirmed = function() {
-            return queryAll(attachmentConfirmedSelectors).some(isVisible);
+          window.__starManagerStageAttachment = function(dataURL, mime, index) {
+            try {
+              var batch = window.__starManagerAttachmentBatch;
+              if (!batch || index !== batch.files.length || index >= batch.expectedCount) return false;
+              var filename = 'aibi-' + String(index + 1).padStart(2, '0') + '.jpg';
+              batch.files.push(fileFromDataURL(dataURL, mime, filename));
+              return true;
+            } catch (e) {
+              window.__starManagerAttachmentBatch = null;
+              return false;
+            }
           };
+
+          window.__starManagerCommitAttachmentBatch = function() {
+            try {
+              var batch = window.__starManagerAttachmentBatch;
+              if (!batch || batch.files.length !== batch.expectedCount) return false;
+              var input = queryFileInput();
+              if (!input) {
+                var trigger = queryFirst(attachTriggerSelectors);
+                if (trigger) { trigger.focus(); trigger.click(); }
+                input = queryFileInput();
+              }
+              if (!input || (batch.files.length > 1 && !input.multiple)) return false;
+              var dt = new DataTransfer();
+              batch.files.forEach(function(file) { dt.items.add(file); });
+              input.files = dt.files;
+              input.dispatchEvent(new Event('change', { bubbles: true, composed: true }));
+              input.dispatchEvent(new Event('input', { bubbles: true, composed: true }));
+              window.__starManagerAttachmentBatch = null;
+              return true;
+            } catch (e) {
+              window.__starManagerAttachmentBatch = null;
+              return false;
+            }
+          };
+
+          window.__starManagerClearAttachmentBatch = function() {
+            window.__starManagerAttachmentBatch = null;
+            return true;
+          };
+
+          window.__starManagerAttachmentCount = attachmentCount;
 
           // force가 false일 때는 사용자가 우리가 넣은 것과 다른 내용을 이미 입력해 두었다면
           // 덮어쓰지 않는다(자동 채우기가 사용자 편집을 방해하지 않도록).
@@ -1775,7 +1885,6 @@ private enum ExternalAIBrowserScripts {
         return """
         (function() {
           try {
-            const inputSelectors = \(jsArray(config.input));
             const authMarkerSelectors = \(jsArray(config.authenticated));
             const loginSelectors = \(jsArray(config.login));
             const challengeSelectors = \(jsArray(config.challenge));
@@ -1805,10 +1914,12 @@ private enum ExternalAIBrowserScripts {
               return JSON.stringify({ authenticated: false, hasLogin: false, hasChallenge: true });
             }
 
-            // 2. 긍정적 인증 증거 (컴포저/입력창 또는 인증 전용 마커) 검사
-            const inputEl = queryFirstVisible(inputSelectors);
+            // 2. 긍정적 인증 증거 검사. 채우기용 입력창 선택자(config.input)는 로그아웃
+            // 상태의 공개 랜딩 페이지에도 등장하는 범용 contenteditable 폴백을 포함하므로
+            // 인증 판정에는 쓰지 않는다. 제공사별로 실제 로그인 후에만 나타나는
+            // 계정 메뉴·전용 에디터 클래스 등 신뢰 가능한 마커만 근거로 삼는다.
             const authMarkerEl = queryFirstVisible(authMarkerSelectors);
-            if (inputEl || authMarkerEl) {
+            if (authMarkerEl) {
               return JSON.stringify({ authenticated: true, hasLogin: false, hasChallenge: false });
             }
 
@@ -1996,6 +2107,9 @@ private enum ExternalAIBrowserScripts {
                     "button[aria-label*='파일 추가']"
                 ],
                 attachmentConfirmed: [
+                    "button[aria-label='첨부파일 닫기']",
+                    "button[aria-label='Remove attachment']",
+                    "button[aria-label='Remove file']",
                     "div[data-test-id*='file-preview']",
                     "div.file-preview-container",
                     "div[class*='uploader-file']"

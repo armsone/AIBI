@@ -19,6 +19,13 @@ object ExternalAIAnswerCleaner {
     private val codeFenceRegex = Regex("(?s)^```(?:[a-zA-Z0-9_-]+)?\\s*\\n?(.*?)\\n?```$")
     private val removableHeaders = setOf("글", "본문", "답변", "결과", "text", "plaintext", "markdown", "포스팅", "초안", "인스타그램", "result", "output", "response")
     private val headerPrefixRegex = Regex("^(글|본문|답변|결과|포스팅|초안|인스타그램|text|plaintext|markdown|result|output|response)\\s*[:：]\\s*", RegexOption.IGNORE_CASE)
+    private val validationDiagnosticRegex = Regex(
+        "(?im)^\\s*(?:print\\s*\\(|Length\\s+(?:with\\s+spaces|without\\s+newlines)\\s*:|Character\\s+count\\s*:|글자\\s*수\\s*:|len\\s*\\()"
+    )
+    private val validatedTextMarkerRegex = Regex("(?im)^\\s*Text\\s*:\\s*$")
+    private val validatedTripleQuotedAssignmentRegex = Regex(
+        "(?is)(?:^|\\n)\\s*(?:draft|text|caption|result|output)\\s*=\\s*(?:\\\"{3}(.*?)\\\"{3}|'{3}(.*?)'{3})"
+    )
 
     private val grokWorkDurationLinePatterns = listOf(
         Regex("^\\d+\\s*(?:s|m|h|초|분|시간)\\s*(?:동안\\s*)?(?:작업함|생각함)$", RegexOption.IGNORE_CASE),
@@ -41,6 +48,25 @@ object ExternalAIAnswerCleaner {
 
         // 2. <think>...</think> 태그 제거
         text = thinkTagRegex.replace(text, "").trim()
+
+        // Gemini가 글자 수를 맞추기 위해 Python/길이 통계를 응답에 노출한 경우,
+        // 마지막 Text: 뒤의 검증 완료 문구만 호스트 결과로 사용한다.
+        if (validationDiagnosticRegex.containsMatchIn(text)) {
+            val marker = validatedTextMarkerRegex.findAll(text).lastOrNull()
+            if (marker != null) {
+                val validated = text.substring(marker.range.last + 1).trim()
+                if (validated.isNotBlank()) text = validated
+            } else {
+                // Gemini can expose a helper program and keep the actual caption in a
+                // triple-quoted draft assignment before calling its length checker.
+                val assignment = validatedTripleQuotedAssignmentRegex.findAll(text).lastOrNull()
+                val validated = assignment?.groupValues
+                    ?.drop(1)
+                    ?.firstOrNull { it.isNotBlank() }
+                    ?.trim()
+                if (!validated.isNullOrBlank()) text = validated
+            }
+        }
 
         // 3. 마크다운 코드 펜스 제거
         val fenceMatch = codeFenceRegex.find(text)

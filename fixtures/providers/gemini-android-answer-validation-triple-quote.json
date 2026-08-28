@@ -1,0 +1,14 @@
+{
+  "fixture": "gemini-android-answer-validation-triple-quote",
+  "sanitized": true,
+  "containsPrivateContent": false,
+  "provider": "gemini",
+  "platform": "android",
+  "diagnosticMarkers": [
+    "def check_len(text):",
+    "print(\"--- Text ---\")",
+    "draft = triple-quoted payload",
+    "check_len(draft)"
+  ],
+  "expectedExtraction": "content-inside-last-recognized-triple-quoted-assignment"
+}

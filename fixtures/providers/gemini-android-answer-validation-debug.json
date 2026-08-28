@@ -1,0 +1,17 @@
+{
+  "provider": "gemini",
+  "sanitized": true,
+  "observedAt": "2026-08-29T00:16:00+09:00",
+  "deviceClass": "Android phone",
+  "stage": "stable-result-cleaning",
+  "rawShape": [
+    "draft prose",
+    "python length-check statements",
+    "length statistics",
+    "standalone Text: marker",
+    "validated final prose"
+  ],
+  "expectedExtraction": "content-after-last-standalone-Text-marker",
+  "activationGuard": "length-or-python-diagnostic-marker-required",
+  "containsPrivateContent": false
+}

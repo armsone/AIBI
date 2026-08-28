@@ -1,0 +1,16 @@
+{
+  "provider": "chatgpt",
+  "state": "authenticated-collapsed-sidebar",
+  "sanitized": true,
+  "containsPrivateContent": false,
+  "sidebarTrigger": "button[data-testid='open-sidebar-button']",
+  "visibleAuthenticatedElementsAfterOpen": [
+    "div[data-testid='accounts-profile-button']"
+  ],
+  "visibleLoginElements": [],
+  "expected": {
+    "authenticated": true,
+    "hasLogin": false,
+    "hasChallenge": false
+  }
+}

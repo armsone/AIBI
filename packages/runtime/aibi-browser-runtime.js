@@ -42,17 +42,49 @@
     if (!selectors) return [];
     const list = Array.isArray(selectors) ? selectors : [selectors];
     const results = [];
+    const seen = new Set();
     for (const selector of list) {
       try {
         const els = root.querySelectorAll(selector);
         if (els && els.length > 0) {
-          results.push(...Array.from(els));
+          for (const element of Array.from(els)) {
+            if (!seen.has(element)) {
+              seen.add(element);
+              results.push(element);
+            }
+          }
         }
       } catch (_) {
         // Ignore invalid selector syntax in fallback chain
       }
     }
-    return results;
+    // Selector fallbacks can overlap. Keep every DOM node once and restore document
+    // order so the final element is always the latest rendered answer.
+    return results.sort((left, right) => {
+      if (left === right || typeof left.compareDocumentPosition !== 'function') return 0;
+      const position = left.compareDocumentPosition(right);
+      if (position & 4) return -1; // DOCUMENT_POSITION_FOLLOWING
+      if (position & 2) return 1;  // DOCUMENT_POSITION_PRECEDING
+      return 0;
+    });
+  }
+
+  /**
+   * Returns all nodes from the first selector family that has matches.
+   * Assistant-message selectors are fallbacks for the same semantic nodes;
+   * merging families mixes turn containers with nested markdown descendants
+   * and makes baseline counts incomparable with completion counts.
+   */
+  function queryPreferredAll(selectors, root = document) {
+    if (!selectors) return [];
+    const list = Array.isArray(selectors) ? selectors : [selectors];
+    for (const selector of list) {
+      try {
+        const elements = Array.from(root.querySelectorAll(selector) || []);
+        if (elements.length > 0) return elements;
+      } catch (_) {}
+    }
+    return [];
   }
 
   /**
@@ -93,6 +125,32 @@
     );
   }
 
+  function preferredAttachmentMenuAction(config) {
+    const selectors = config && config.selectors && config.selectors.attachmentMenuAction;
+    const candidates = queryAll(selectors).filter(isVisible);
+    if (candidates.length > 0) return candidates[0];
+
+    const labels = config && config.selectors && config.selectors.attachmentMenuActionText;
+    if (!Array.isArray(labels) || labels.length === 0) return null;
+    const normalizedLabels = new Set(labels.map((value) => String(value).trim().toLocaleLowerCase()));
+    const semanticCandidates = queryAll([
+      "button",
+      "[role='menuitem']",
+      "[role='option']",
+      "[mat-menu-item]",
+      "[data-test-id]",
+    ]).filter(isVisible);
+    return semanticCandidates.find((element) => {
+      const values = [
+        element.getAttribute && element.getAttribute('aria-label'),
+        element.getAttribute && element.getAttribute('title'),
+        element.innerText,
+        element.textContent,
+      ];
+      return values.some((value) => value && normalizedLabels.has(String(value).trim().toLocaleLowerCase()));
+    }) || null;
+  }
+
   function fileFromDataUrl(image) {
     const dataUrl = image && image.dataUrl;
     if (typeof dataUrl !== 'string') throw new Error('INVALID_IMAGE_DATA');
@@ -118,7 +176,7 @@
    */
   RUNTIME.getBaselineState = function (config) {
     try {
-      const assistantEls = queryAll(config.selectors.assistantMessage);
+      const assistantEls = queryPreferredAll(config.selectors.assistantMessage);
       const isLoginVisible = isVisible(queryFirst(config.selectors.loginIndicator));
       const isChallengeVisible = isVisible(queryFirst(config.selectors.challengeIndicator));
 
@@ -214,21 +272,48 @@
   RUNTIME.prepareAttachmentInput = function (config) {
     try {
       let input = preferredAttachmentInput(config);
+      let action = 'none';
       if (!input) {
-        const trigger = queryFirst(config.selectors.attachmentTrigger);
-        if (trigger && isVisible(trigger)) trigger.click();
-        input = preferredAttachmentInput(config);
+        const menuAction = preferredAttachmentMenuAction(config);
+        if (menuAction) {
+          menuAction.click();
+          action = 'menu-action';
+        } else {
+          const trigger = queryFirst(config.selectors.attachmentTrigger);
+          if (trigger && isVisible(trigger)) {
+            trigger.click();
+            action = 'trigger';
+          }
+        }
       }
+      input = preferredAttachmentInput(config);
       return JSON.stringify({
         success: true,
         data: {
           inputFound: !!input,
           allowsMultiple: !!(input && input.multiple),
+          action: action,
           previewCount: visibleFamilyCount(config.selectors.attachmentPreview),
         },
       });
     } catch (err) {
       return JSON.stringify({ success: false, code: 'ATTACHMENT_PREPARE_FAILED', error: String(err && err.message ? err.message : err) });
+    }
+  };
+
+  RUNTIME.openAttachmentPanel = function (config) {
+    try {
+      const input = preferredAttachmentInput(config);
+      if (!input) {
+        return JSON.stringify({ success: false, code: 'ATTACHMENT_INPUT_NOT_FOUND', error: 'Image attachment input was not found.' });
+      }
+      input.click();
+      return JSON.stringify({
+        success: true,
+        data: { inputFound: true, allowsMultiple: !!input.multiple },
+      });
+    } catch (err) {
+      return JSON.stringify({ success: false, code: 'ATTACHMENT_PANEL_FAILED', error: String(err && err.message ? err.message : err) });
     }
   };
 
@@ -239,7 +324,7 @@
   RUNTIME.attachImages = function (config, images) {
     try {
       const capabilities = config.mediaCapabilities || {};
-      const maximum = Math.min(8, capabilities.maxImagesPerTask || 8);
+      const maximum = Math.min(20, capabilities.maxImagesPerTask || 8);
       if (!Array.isArray(images) || images.length < 1) {
         return JSON.stringify({ success: false, code: 'NO_ATTACHMENTS', error: 'No image attachments were supplied.' });
       }
@@ -276,6 +361,64 @@
     } catch (err) {
       return JSON.stringify({ success: false, code: 'ATTACHMENT_ASSIGNMENT_FAILED', error: String(err && err.message ? err.message : err) });
     }
+  };
+
+  /**
+   * Bounded bridge variant for native WebViews. Each image crosses the JavaScript bridge in a
+   * separate call, then the complete ordered batch is committed in one input event.
+   */
+  RUNTIME.beginAttachmentBatch = function (config, expectedCount) {
+    const maximum = Math.min(20, (config.mediaCapabilities && config.mediaCapabilities.maxImagesPerTask) || 8);
+    if (!Number.isInteger(expectedCount) || expectedCount < 1 || expectedCount > maximum) {
+      return JSON.stringify({ success: false, code: 'ATTACHMENT_LIMIT_EXCEEDED' });
+    }
+    RUNTIME.__attachmentBatch = { expectedCount: expectedCount, files: [] };
+    return JSON.stringify({ success: true, data: { expectedCount: expectedCount } });
+  };
+
+  RUNTIME.stageAttachment = function (image, index) {
+    try {
+      const batch = RUNTIME.__attachmentBatch;
+      if (!batch || index !== batch.files.length || index >= batch.expectedCount) {
+        return JSON.stringify({ success: false, code: 'ATTACHMENT_ORDER_MISMATCH' });
+      }
+      const filename = `aibi-${String(index + 1).padStart(2, '0')}.jpg`;
+      batch.files.push(fileFromDataUrl({ ...image, filename: filename }));
+      return JSON.stringify({ success: true, data: { stagedCount: batch.files.length } });
+    } catch (err) {
+      RUNTIME.__attachmentBatch = null;
+      return JSON.stringify({ success: false, code: 'ATTACHMENT_STAGE_FAILED', error: String(err && err.message ? err.message : err) });
+    }
+  };
+
+  RUNTIME.commitAttachmentBatch = function (config) {
+    try {
+      const batch = RUNTIME.__attachmentBatch;
+      if (!batch || batch.files.length !== batch.expectedCount) {
+        return JSON.stringify({ success: false, code: 'ATTACHMENT_BATCH_INCOMPLETE' });
+      }
+      const input = preferredAttachmentInput(config);
+      if (!input) return JSON.stringify({ success: false, code: 'ATTACHMENT_INPUT_NOT_FOUND' });
+      if (batch.files.length > 1 && !input.multiple &&
+          (!config.mediaCapabilities || config.mediaCapabilities.requiresMultipleInputForBatch !== false)) {
+        return JSON.stringify({ success: false, code: 'MULTIPLE_SELECTION_UNSUPPORTED' });
+      }
+      const transfer = new DataTransfer();
+      batch.files.forEach((file) => transfer.items.add(file));
+      input.files = transfer.files;
+      input.dispatchEvent(new Event('change', { bubbles: true, composed: true }));
+      input.dispatchEvent(new Event('input', { bubbles: true, composed: true }));
+      RUNTIME.__attachmentBatch = null;
+      return JSON.stringify({ success: true, data: { acceptedCount: transfer.files.length } });
+    } catch (err) {
+      RUNTIME.__attachmentBatch = null;
+      return JSON.stringify({ success: false, code: 'ATTACHMENT_COMMIT_FAILED', error: String(err && err.message ? err.message : err) });
+    }
+  };
+
+  RUNTIME.clearAttachmentBatch = function () {
+    RUNTIME.__attachmentBatch = null;
+    return JSON.stringify({ success: true });
   };
 
   /**
@@ -475,7 +618,7 @@
   RUNTIME.verifySubmission = function (config, baselineAssistantCount) {
     try {
       const inputEl = queryFirst(config.selectors.promptInput);
-      const assistantEls = queryAll(config.selectors.assistantMessage);
+      const assistantEls = queryPreferredAll(config.selectors.assistantMessage);
       const stopBtn = queryFirst(config.selectors.stopButton);
 
       let inputCleared = false;
@@ -557,7 +700,7 @@
       const isGenerating = isVisible(stopBtn);
 
       // 4. Extract Assistant Response
-      const assistantEls = queryAll(config.selectors.assistantMessage);
+      const assistantEls = queryPreferredAll(config.selectors.assistantMessage);
       const baseline = baselineAssistantCount || 0;
       let rawText = '';
       let hasNewAnswer = false;
@@ -606,6 +749,24 @@
     }
 
     let text = rawText.replace(/\r\n/g, '\n').replace(/\r/g, '\n').trim();
+
+    // Some providers expose their length-validation program and statistics together with
+    // the final prose. Only the last standalone Text: payload is a host result, and only
+    // when diagnostic markers prove this is a validation transcript rather than prose.
+    const hasValidationDiagnostics = /^(?:\s*print\s*\(|\s*Length\s+(?:with\s+spaces|without\s+newlines)\s*:|\s*Character\s+count\s*:|\s*글자\s*수\s*:|\s*len\s*\()/im.test(text);
+    if (hasValidationDiagnostics) {
+      const markers = Array.from(text.matchAll(/^\s*Text\s*:\s*$/gim));
+      const marker = markers[markers.length - 1];
+      if (marker) {
+        const validatedText = text.slice(marker.index + marker[0].length).trim();
+        if (validatedText) text = validatedText;
+      } else {
+        const assignments = Array.from(text.matchAll(/(?:^|\n)\s*(?:draft|text|caption|result|output)\s*=\s*(?:"""([\s\S]*?)"""|'''([\s\S]*?)''')/gi));
+        const assignment = assignments[assignments.length - 1];
+        const validatedText = assignment && (assignment[1] || assignment[2] || '').trim();
+        if (validatedText) text = validatedText;
+      }
+    }
 
     // 1. Remove outer markdown code fences
     // e.g. ```markdown ... ``` or ```text ... ``` or ``` ... ```

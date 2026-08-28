@@ -6,14 +6,14 @@
 import Foundation
 import UIKit
 
-public struct AIBIMediaAttachment: Equatable, Sendable {
-    public let data: Data
-    public let mimeType: String
-    public let filename: String
-    public let sourceIndex: Int
-    public let role: String?
+struct AIBIMediaAttachment: Equatable, Sendable {
+    let data: Data
+    let mimeType: String
+    let filename: String
+    let sourceIndex: Int
+    let role: String?
 
-    public init(data: Data, mimeType: String = "image/jpeg", filename: String, sourceIndex: Int, role: String? = nil) {
+    init(data: Data, mimeType: String = "image/jpeg", filename: String, sourceIndex: Int, role: String? = nil) {
         self.data = data
         self.mimeType = mimeType
         self.filename = filename
@@ -21,49 +21,35 @@ public struct AIBIMediaAttachment: Equatable, Sendable {
         self.role = role
     }
 
-    public var dataURL: String {
+    var dataURL: String {
         "data:\(mimeType);base64,\(data.base64EncodedString())"
     }
 }
 
-public struct AIBIImageNormalizationPolicy: Equatable, Sendable {
-    public var maximumImageCount: Int = 8
-    public var maximumLongEdgePixels: CGFloat = 2_048
-    public var maximumBytesPerImage: Int = 2_000_000
-    public var initialJPEGQuality: CGFloat = 0.84
-    public var minimumJPEGQuality: CGFloat = 0.50
-
-    public init(
-        maximumImageCount: Int = 8,
-        maximumLongEdgePixels: CGFloat = 2_048,
-        maximumBytesPerImage: Int = 2_000_000,
-        initialJPEGQuality: CGFloat = 0.84,
-        minimumJPEGQuality: CGFloat = 0.50
-    ) {
-        self.maximumImageCount = maximumImageCount
-        self.maximumLongEdgePixels = maximumLongEdgePixels
-        self.maximumBytesPerImage = maximumBytesPerImage
-        self.initialJPEGQuality = initialJPEGQuality
-        self.minimumJPEGQuality = minimumJPEGQuality
-    }
+struct AIBIImageNormalizationPolicy: Equatable, Sendable {
+    var maximumImageCount: Int = 8
+    var maximumLongEdgePixels: CGFloat = 2_048
+    var maximumBytesPerImage: Int = 2_000_000
+    var initialJPEGQuality: CGFloat = 0.84
+    var minimumJPEGQuality: CGFloat = 0.50
 }
 
-public enum AIBIMediaPreparationError: Error, Equatable {
+enum AIBIMediaPreparationError: Error, Equatable {
     case invalidPolicy
     case attachmentLimitExceeded
     case unsupportedImage(index: Int)
     case sizeTargetUnreachable(index: Int)
 }
 
-public enum AIBIImageNormalizer {
-    /// Normalizes sources sequentially. Rendering fixes UIImage orientation, strips source
-    /// metadata, and releases each decoded original before processing the next photo.
-    public static func normalizeOrdered(
+enum AIBIImageNormalizer {
+    /// 선택된 사진만 순서대로 처리한다. 원본은 바꾸지 않으며 다시 그리면서 방향을
+    /// 고정하고 위치·EXIF 등 원본 메타데이터를 제거한다.
+    static func normalizeOrdered(
         _ sourceImages: [Data],
         roles: [String?] = [],
         policy: AIBIImageNormalizationPolicy = .init()
     ) throws -> [AIBIMediaAttachment] {
-        guard (1...20).contains(policy.maximumImageCount),
+        guard (1...8).contains(policy.maximumImageCount),
               policy.maximumLongEdgePixels >= 512,
               policy.maximumBytesPerImage >= 128_000,
               (0...1).contains(policy.initialJPEGQuality),

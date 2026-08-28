@@ -16,17 +16,14 @@ object ExternalAIScripts {
     /** 프롬프트 문자열을 JavaScript 안전한 문자열 리터럴로 인코딩 */
     fun jsStringLiteral(value: String): String = gson.toJson(value)
 
-    /** 대표 사진 첨부 스크립트 (DataURL -> File 객체 생성 -> DataTransfer -> input.files 설정 및 이벤트 디스패치) */
-    fun attachPhotoScript(provider: DirectAIProvider, attachment: ExternalAIAttachment): String {
+    /** 첨부 입력 또는 제공사별 중첩 메뉴를 한 단계씩 연다. 준비될 때까지 호출자가 반복한다. */
+    fun prepareAttachmentInputScript(provider: DirectAIProvider): String {
         val config = providerSelectors(provider)
-        val dataUrlLiteral = jsStringLiteral(attachment.dataUrl)
-        val mimeLiteral = jsStringLiteral(attachment.mimeType)
-        val filenameLiteral = jsStringLiteral(attachment.filename)
+        val requiresNestedFileAction = provider == DirectAIProvider.GEMINI ||
+            provider == DirectAIProvider.OPEN_AI
         return """
-            (async function() {
+            (function() {
                 try {
-                    // Prefer an image-only input. Gemini exposes a document input first;
-                    // assigning an image to that node is ignored by its uploader.
                     var fileInputSelectors = [
                         'input[type="file"][accept*="image"]',
                         'input[type="file"][accept*=".jpg"]',
@@ -35,9 +32,8 @@ object ExternalAIScripts {
                         'input[type="file"]'
                     ];
                     var triggerSelectors = ${config.attachTrigger};
-                    var dataUrl = $dataUrlLiteral;
-                    var mime = $mimeLiteral;
-                    var filename = $filenameLiteral;
+                    var menuActionSelectors = ${config.attachmentMenuAction};
+                    var menuActionTexts = ${config.attachmentMenuActionText};
 
                     function queryFirst(selectors) {
                         for (var i = 0; i < selectors.length; i++) {
@@ -49,22 +45,236 @@ object ExternalAIScripts {
                         return null;
                     }
 
-                    var input = queryFirst(fileInputSelectors);
-                    if (!input) {
-                        var trigger = queryFirst(triggerSelectors);
-                        if (trigger) {
-                            trigger.click();
-                            await new Promise(function(r) { setTimeout(r, 700); });
-                            input = queryFirst(fileInputSelectors);
+                    function preferredInput() {
+                        var specific = queryFirst(fileInputSelectors.slice(0, 4));
+                        if (specific) return specific;
+                        if (!$requiresNestedFileAction || window.__sm_attachment_file_action_selected === true) {
+                            return queryFirst([fileInputSelectors[4]]);
+                        }
+                        return null;
+                    }
+
+                    function isVisible(el) {
+                        if (!el) return false;
+                        var style = window.getComputedStyle(el);
+                        return style.display !== 'none' && style.visibility !== 'hidden' &&
+                            style.opacity !== '0' && (el.offsetWidth > 0 || el.offsetHeight > 0 || el.getClientRects().length > 0);
+                    }
+
+                    function visibleMenuAction() {
+                        var direct = queryFirst(menuActionSelectors);
+                        if (isVisible(direct)) return direct.closest('button,[role="menuitem"],[role="option"],li,[mat-menu-item],[data-test-id]') || direct;
+                        var candidates = document.querySelectorAll('button,[role="menuitem"],[role="option"],li,[mat-menu-item],[data-test-id],div,span');
+                        for (var i = 0; i < candidates.length; i++) {
+                            if (!isVisible(candidates[i])) continue;
+                            var text = (candidates[i].innerText || candidates[i].textContent || '').trim().toLowerCase();
+                            for (var j = 0; j < menuActionTexts.length; j++) {
+                                if (text === String(menuActionTexts[j]).trim().toLowerCase()) {
+                                    return candidates[i].closest('button,[role="menuitem"],[role="option"],li,[mat-menu-item],[data-test-id]') || candidates[i];
+                                }
+                            }
+                        }
+                        return null;
+                    }
+
+                    var input = preferredInput();
+                    if (input) {
+                        return JSON.stringify({ success: true, inputFound: true, allowsMultiple: !!input.multiple, action: 'none' });
+                    }
+                    var menuAction = visibleMenuAction();
+                    if (menuAction) {
+                        window.__sm_attachment_file_action_selected = true;
+                        menuAction.click();
+                        return JSON.stringify({ success: true, inputFound: false, action: 'menu-action' });
+                    }
+                    var trigger = queryFirst(triggerSelectors);
+                    if (isVisible(trigger)) {
+                        trigger.click();
+                        return JSON.stringify({ success: true, inputFound: false, action: 'trigger' });
+                    }
+                    return JSON.stringify({ success: false, inputFound: false, error: 'FILE_INPUT_NOT_FOUND' });
+                } catch (e) {
+                    return JSON.stringify({ success: false, inputFound: false, error: e.message || String(e) });
+                }
+            })();
+        """.trimIndent()
+    }
+
+    /** 발견된 제공사 파일 입력을 클릭해 Android WebChromeClient의 공개 파일 패널 콜백을 연다. */
+    fun openAttachmentPanelScript(provider: DirectAIProvider): String {
+        val requiresNestedFileAction = provider == DirectAIProvider.GEMINI ||
+            provider == DirectAIProvider.OPEN_AI
+        return """
+            (function() {
+                try {
+                    var selectors = [
+                        'input[type="file"][accept*="image"]',
+                        'input[type="file"][accept*=".jpg"]',
+                        'input[type="file"][accept*=".jpeg"]',
+                        'input[type="file"][accept*=".png"]',
+                        'input[type="file"]'
+                    ];
+                    var limit = (!$requiresNestedFileAction || window.__sm_attachment_file_action_selected === true)
+                        ? selectors.length : selectors.length - 1;
+                    var input = null;
+                    for (var i = 0; i < limit && !input; i++) {
+                        try { input = document.querySelector(selectors[i]); } catch (_) {}
+                    }
+                    if (!input) return JSON.stringify({ success: false, inputFound: false, error: 'FILE_INPUT_NOT_FOUND' });
+                    input.click();
+                    return JSON.stringify({ success: true, inputFound: true, action: 'native-file-panel' });
+                } catch (e) {
+                    return JSON.stringify({ success: false, inputFound: false, error: e.message || String(e) });
+                }
+            })();
+        """.trimIndent()
+    }
+
+    /** Returns the viewport coordinate of the provider's hydrated image input. */
+    fun attachmentImageInputTargetScript(provider: DirectAIProvider): String {
+        providerSelectors(provider)
+        return """
+            (function() {
+                var selectors = [
+                    'input[type="file"][accept*="image"]',
+                    'input[type="file"][accept*=".jpg"]',
+                    'input[type="file"][accept*=".jpeg"]',
+                    'input[type="file"][accept*=".png"]'
+                ];
+                for (var i = 0; i < selectors.length; i++) {
+                    var elements = document.querySelectorAll(selectors[i]);
+                    for (var j = 0; j < elements.length; j++) {
+                        var el = elements[j];
+                        var r = el.getBoundingClientRect();
+                        var s = window.getComputedStyle(el);
+                        if (r.width > 0 && r.height > 0 && s.display !== 'none' &&
+                            s.visibility !== 'hidden' && !el.disabled) {
+                            return JSON.stringify({found:true, x:(r.left+r.width/2)/window.innerWidth, y:(r.top+r.height/2)/window.innerHeight});
                         }
                     }
+                }
+                return JSON.stringify({found:false});
+            })();
+        """.trimIndent()
+    }
 
-                    if (!input) {
-                        return JSON.stringify({ success: false, error: 'FILE_INPUT_NOT_FOUND' });
+    /** 제공사 첨부 트리거의 화면 비율 좌표. Android 네이티브 터치에만 사용한다. */
+    fun attachmentTriggerTargetScript(provider: DirectAIProvider): String {
+        val config = providerSelectors(provider)
+        return visibleTargetScript(config.attachTrigger)
+    }
+
+    /** Opens the provider's top-level attachment trigger through its public DOM control. */
+    fun openAttachmentTriggerScript(provider: DirectAIProvider): String {
+        val config = providerSelectors(provider)
+        return """
+            (function() {
+                var selectors = ${config.attachTrigger};
+                for (var i = 0; i < selectors.length; i++) {
+                    try {
+                        var elements = document.querySelectorAll(selectors[i]);
+                        for (var j = 0; j < elements.length; j++) {
+                            var el = elements[j];
+                            var r = el.getBoundingClientRect();
+                            var s = window.getComputedStyle(el);
+                            if (r.width > 0 && r.height > 0 && s.display !== 'none' &&
+                                s.visibility !== 'hidden' && !el.disabled && el.getAttribute('aria-disabled') !== 'true') {
+                                el.click();
+                                return JSON.stringify({opened:true});
+                            }
+                        }
+                    } catch (_) {}
+                }
+                return JSON.stringify({opened:false});
+            })();
+        """.trimIndent()
+    }
+
+    /** Gemini 등의 중첩 메뉴에서 실제 파일 버튼의 화면 비율 좌표를 찾는다. */
+    fun attachmentMenuActionTargetScript(provider: DirectAIProvider): String {
+        val config = providerSelectors(provider)
+        return """
+            (function() {
+                var selectors = [
+                    "[data-test-id='uploader-images-files-button-advanced'] button",
+                    "images-files-uploader[data-test-id='uploader-images-files-button-advanced'] button"
+                ].concat(${config.attachmentMenuAction});
+                var allowed = ${config.attachmentMenuActionText};
+                function usable(el) {
+                    if (!el) return false;
+                    var r = el.getBoundingClientRect();
+                    var s = window.getComputedStyle(el);
+                    return r.width > 0 && r.height > 0 && s.display !== 'none' &&
+                        s.visibility !== 'hidden' && !el.disabled && el.getAttribute('aria-disabled') !== 'true';
+                }
+                function result(el) {
+                    var r = el.getBoundingClientRect();
+                    return JSON.stringify({found:true, x:(r.left+r.width/2)/window.innerWidth, y:(r.top+r.height/2)/window.innerHeight});
+                }
+                for (var i = 0; i < selectors.length; i++) {
+                    try {
+                        var direct = document.querySelector(selectors[i]);
+                        if (usable(direct)) return result(direct);
+                    } catch (_) {}
+                }
+                var buttons = document.querySelectorAll('button,[role="menuitem"],[role="option"]');
+                for (var b = 0; b < buttons.length; b++) {
+                    if (!usable(buttons[b])) continue;
+                    var text = (buttons[b].innerText || buttons[b].textContent || '').trim().toLowerCase();
+                    for (var t = 0; t < allowed.length; t++) {
+                        if (text === String(allowed[t]).trim().toLowerCase()) return result(buttons[b]);
                     }
+                }
+                return JSON.stringify({found:false});
+            })();
+        """.trimIndent()
+    }
 
-                    // Some providers (notably ChatGPT) wrap window.fetch and reject data: URLs.
-                    // Decode the data URL directly so attachment creation stays provider-neutral.
+    private fun visibleTargetScript(selectorsJson: String): String = """
+        (function() {
+            var selectors = $selectorsJson;
+            for (var i = 0; i < selectors.length; i++) {
+                try {
+                    var elements = document.querySelectorAll(selectors[i]);
+                    for (var j = 0; j < elements.length; j++) {
+                        var el = elements[j];
+                        var r = el.getBoundingClientRect();
+                        var s = window.getComputedStyle(el);
+                        if (r.width > 0 && r.height > 0 && s.display !== 'none' &&
+                            s.visibility !== 'hidden' && !el.disabled && el.getAttribute('aria-disabled') !== 'true') {
+                            return JSON.stringify({found:true, x:(r.left+r.width/2)/window.innerWidth, y:(r.top+r.height/2)/window.innerHeight});
+                        }
+                    }
+                } catch (_) {}
+            }
+            return JSON.stringify({found:false});
+        })();
+    """.trimIndent()
+
+    fun beginAttachmentBatchScript(expectedCount: Int): String = """
+        (function() {
+            var count = $expectedCount;
+            if (!Number.isInteger(count) || count < 1 || count > 8) {
+                return JSON.stringify({ success: false, error: 'ATTACHMENT_LIMIT_EXCEEDED' });
+            }
+            window.__sm_attachment_batch = { expectedCount: count, files: [] };
+            return JSON.stringify({ success: true, acceptedCount: 0 });
+        })();
+    """.trimIndent()
+
+    /** 정규화된 사진 한 장을 브리지 크기를 제한하며 메모리 배치에 추가한다. */
+    fun appendAttachmentToBatchScript(attachment: ExternalAIAttachment): String {
+        val dataUrlLiteral = jsStringLiteral(attachment.dataUrl)
+        val mimeLiteral = jsStringLiteral(attachment.mimeType)
+        val filenameLiteral = jsStringLiteral(attachment.filename)
+        return """
+            (function() {
+                try {
+                    var batch = window.__sm_attachment_batch;
+                    if (!batch || batch.files.length >= batch.expectedCount) {
+                        return JSON.stringify({ success: false, error: 'ATTACHMENT_BATCH_NOT_READY' });
+                    }
+                    var dataUrl = $dataUrlLiteral;
                     var comma = dataUrl.indexOf(',');
                     if (comma < 0) throw new Error('INVALID_DATA_URL');
                     var header = dataUrl.slice(0, comma);
@@ -72,16 +282,12 @@ object ExternalAIScripts {
                     var binary = /;base64/i.test(header) ? atob(payload) : decodeURIComponent(payload);
                     var bytes = new Uint8Array(binary.length);
                     for (var b = 0; b < binary.length; b++) bytes[b] = binary.charCodeAt(b);
-                    var blob = new Blob([bytes], { type: mime });
-                    var file = new File([blob], filename, { type: mime, lastModified: Date.now() });
-
-                    var dt = new DataTransfer();
-                    dt.items.add(file);
-                    input.files = dt.files;
-                    input.dispatchEvent(new Event('change', { bubbles: true, composed: true }));
-                    input.dispatchEvent(new Event('input', { bubbles: true, composed: true }));
-
-                    return JSON.stringify({ success: true });
+                    batch.files.push(new File(
+                        [new Blob([bytes], { type: $mimeLiteral })],
+                        $filenameLiteral,
+                        { type: $mimeLiteral, lastModified: Date.now() }
+                    ));
+                    return JSON.stringify({ success: true, acceptedCount: batch.files.length });
                 } catch (e) {
                     return JSON.stringify({ success: false, error: e.message || String(e) });
                 }
@@ -89,8 +295,52 @@ object ExternalAIScripts {
         """.trimIndent()
     }
 
-    /** 대표 사진 첨부 완료 여부(미리보기 썸네일 노출) 확인 스크립트 */
-    fun checkAttachmentConfirmedScript(provider: DirectAIProvider): String {
+    /** 준비된 전체 배치를 input.files에 한 번만 할당해 부분 첨부를 방지한다. */
+    fun commitAttachmentBatchScript(provider: DirectAIProvider): String {
+        providerSelectors(provider) // 제공사 설정 존재 여부를 조기에 검증한다.
+        val requiresNestedFileAction = provider == DirectAIProvider.GEMINI
+        return """
+            (function() {
+                try {
+                    var batch = window.__sm_attachment_batch;
+                    if (!batch || batch.files.length !== batch.expectedCount) {
+                        return JSON.stringify({ success: false, error: 'ATTACHMENT_BATCH_INCOMPLETE' });
+                    }
+                    var selectors = [
+                        'input[type="file"][accept*="image"]',
+                        'input[type="file"][accept*=".jpg"]',
+                        'input[type="file"][accept*=".jpeg"]',
+                        'input[type="file"][accept*=".png"]',
+                        'input[type="file"]'
+                    ];
+                    var input = null;
+                    var selectorLimit = (!$requiresNestedFileAction || window.__sm_attachment_file_action_selected === true)
+                        ? selectors.length : selectors.length - 1;
+                    for (var i = 0; i < selectorLimit && !input; i++) {
+                        try { input = document.querySelector(selectors[i]); } catch (_) {}
+                    }
+                    if (!input) return JSON.stringify({ success: false, error: 'FILE_INPUT_NOT_FOUND' });
+                    if (batch.expectedCount > 1 && !input.multiple) {
+                        return JSON.stringify({ success: false, error: 'MULTIPLE_SELECTION_UNSUPPORTED' });
+                    }
+                    var transfer = new DataTransfer();
+                    batch.files.forEach(function(file) { transfer.items.add(file); });
+                    input.files = transfer.files;
+                    input.dispatchEvent(new Event('change', { bubbles: true, composed: true }));
+                    input.dispatchEvent(new Event('input', { bubbles: true, composed: true }));
+                    var acceptedCount = transfer.files.length;
+                    window.__sm_attachment_batch = null;
+                    return JSON.stringify({ success: acceptedCount === batch.expectedCount, acceptedCount: acceptedCount });
+                } catch (e) {
+                    window.__sm_attachment_batch = null;
+                    return JSON.stringify({ success: false, error: e.message || String(e) });
+                }
+            })();
+        """.trimIndent()
+    }
+
+    /** 첨부 완료 여부를 한 선택자 계열의 정확한 미리보기 수로 확인한다. */
+    fun checkAttachmentConfirmedScript(provider: DirectAIProvider, expectedCount: Int = 1): String {
         val config = providerSelectors(provider)
         return """
             (function() {
@@ -102,15 +352,18 @@ object ExternalAIScripts {
                         if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') return false;
                         return el.offsetWidth > 0 || el.offsetHeight > 0 || el.getClientRects().length > 0;
                     }
+                    var maximumVisibleCount = 0;
                     for (var i = 0; i < selectors.length; i++) {
                         try {
                             var els = document.querySelectorAll(selectors[i]);
+                            var visibleCount = 0;
                             for (var j = 0; j < els.length; j++) {
-                                if (isVisible(els[j])) return JSON.stringify({ confirmed: true });
+                                if (isVisible(els[j])) visibleCount += 1;
                             }
+                            maximumVisibleCount = Math.max(maximumVisibleCount, visibleCount);
                         } catch (_) {}
                     }
-                    return JSON.stringify({ confirmed: false });
+                    return JSON.stringify({ confirmed: maximumVisibleCount === $expectedCount, previewCount: maximumVisibleCount });
                 } catch (e) {
                     return JSON.stringify({ confirmed: false, error: e.message || String(e) });
                 }
@@ -794,6 +1047,11 @@ object ExternalAIScripts {
     ): String {
         val config = providerSelectors(provider)
         val visibilityLiteral = if (requireVisible) "true" else "false"
+        val strongAuthMarker = when (provider) {
+            DirectAIProvider.GEMINI -> "a[href*='accounts.google.com/SignOutOptions']"
+            DirectAIProvider.OPEN_AI -> "[data-testid='accounts-profile-button']"
+            else -> ""
+        }
         return """
             (function() {
                 try {
@@ -801,6 +1059,7 @@ object ExternalAIScripts {
                     var loginSelectors = ${config.login};
                     var challengeSelectors = ${config.challenge};
                     var authMarkerSelectors = ${config.authMarkers};
+                    var strongAuthMarkerSelector = ${gson.toJson(strongAuthMarker)};
                     var requireVisible = $visibilityLiteral;
 
                     function isVisible(el) {
@@ -835,23 +1094,7 @@ object ExternalAIScripts {
                         });
                     }
 
-                    // 2. 긍정적 인증 증거 (컴포저/입력창 또는 계정 마커) 검사
-                    var inputEl = queryFirstVisible(inputSelectors);
-                    var authMarkerEl = queryFirstVisible(authMarkerSelectors);
-                    var hasPositiveEvidence = (inputEl !== null) || (authMarkerEl !== null);
-
-                    if (hasPositiveEvidence) {
-                        return JSON.stringify({
-                            success: true,
-                            authenticated: true,
-                            hasInput: inputEl !== null,
-                            hasLogin: false,
-                            hasChallenge: false,
-                            reason: 'AUTHENTICATED'
-                        });
-                    }
-
-                    // 3. 로그인 화면/버튼 검사
+                    // 2. 로그인 화면/버튼 검사 (로그인 필요 상태)
                     var loginEl = queryFirstVisible(loginSelectors);
                     if (loginEl) {
                         return JSON.stringify({
@@ -864,11 +1107,30 @@ object ExternalAIScripts {
                         });
                     }
 
+                    // 3. 긍정적 인증 증거 (제공사별 계정/프로필 마커) 검사
+                    var authMarkerEl = queryFirstVisible(authMarkerSelectors);
+                    var strongAuthMarkerEl = strongAuthMarkerSelector
+                        ? document.querySelector(strongAuthMarkerSelector)
+                        : null;
+                    var inputEl = queryFirstVisible(inputSelectors);
+                    var hasPositiveEvidence = (authMarkerEl !== null || strongAuthMarkerEl !== null);
+
+                    if (hasPositiveEvidence) {
+                        return JSON.stringify({
+                            success: true,
+                            authenticated: true,
+                            hasInput: inputEl !== null,
+                            hasLogin: false,
+                            hasChallenge: false,
+                            reason: 'AUTHENTICATED'
+                        });
+                    }
+
                     // 4. 아직 렌더링되지 않음 (하이드레이션 대기)
                     return JSON.stringify({
                         success: true,
                         authenticated: false,
-                        hasInput: false,
+                        hasInput: inputEl !== null,
                         hasLogin: false,
                         hasChallenge: false,
                         reason: 'NO_POSITIVE_EVIDENCE'
@@ -900,6 +1162,8 @@ object ExternalAIScripts {
                 val obj = element.asJsonObject
                 ExternalAIAttachmentResult(
                     success = obj.optBoolean("success", false),
+                    inputFound = obj.optBoolean("inputFound", false),
+                    acceptedCount = obj.optInt("acceptedCount", 0),
                     error = obj.optNullableString("error")
                 )
             } else {
@@ -921,6 +1185,16 @@ object ExternalAIScripts {
             }
         } catch (_: Exception) {
             false
+        }
+    }
+
+    fun parseAttachmentPreviewCount(rawResult: String?): Int {
+        if (rawResult == null || rawResult == "null" || rawResult.isBlank()) return 0
+        return try {
+            val element = parseJsonElement(rawResult) ?: return 0
+            if (element.isJsonObject) element.asJsonObject.optInt("previewCount", 0) else 0
+        } catch (_: Exception) {
+            0
         }
     }
 
@@ -1164,6 +1438,8 @@ object ExternalAIScripts {
         val challenge: String,
         val authMarkers: String,
         val attachTrigger: String,
+        val attachmentMenuAction: String,
+        val attachmentMenuActionText: String,
         val attachmentConfirmed: String
     )
 
@@ -1222,12 +1498,12 @@ object ExternalAIScripts {
                 login = toJsonArray(
                     listOf(
                         "a[href*='accounts.google.com/ServiceLogin']",
+                        "a[href*='accounts.google.com/InteractiveLogin']",
                         "a[aria-label*='Sign in' i]",
                         "button[aria-label*='Sign in' i]",
                         "button[aria-label*='로그인' i]",
                         "a[aria-label*='로그인' i]",
-                        "a[href*='/signin']",
-                        "a[href*='accounts.google.com']"
+                        "a[href*='/signin']"
                     )
                 ),
                 challenge = toJsonArray(
@@ -1242,9 +1518,11 @@ object ExternalAIScripts {
                         "a[aria-label*='Google 계정' i]",
                         "a[aria-label*='Google Account' i]",
                         "button[aria-label*='Google 계정' i]",
-                        "bard-mode-switcher",
-                        "div.ql-editor",
-                        "rich-textarea"
+                        "button[aria-label*='Google Account' i]",
+                        "gem-user-menu",
+                        "a[href*='accounts.google.com/SignOutOptions']",
+                        "a[href*='myaccount.google.com']",
+                        "button[data-test-id='user-menu-button']"
                     )
                 ),
                 attachTrigger = toJsonArray(
@@ -1258,8 +1536,24 @@ object ExternalAIScripts {
                         "button[aria-label*='파일 추가']"
                     )
                 ),
+                attachmentMenuAction = toJsonArray(
+                    listOf(
+                        "images-files-uploader[data-test-id='uploader-images-files-button-advanced'] button",
+                        "[data-test-id='uploader-images-files-button-advanced'] button",
+                        "button[aria-label='파일']",
+                        "[role='menuitem'][aria-label='파일']",
+                        "button[aria-label='Files']",
+                        "[role='menuitem'][aria-label='Files']"
+                    )
+                ),
+                attachmentMenuActionText = toJsonArray(
+                    listOf("파일", "Files", "Upload files", "Upload from device")
+                ),
                 attachmentConfirmed = toJsonArray(
                     listOf(
+                        "button[aria-label='첨부파일 닫기']",
+                        "button[aria-label='Remove attachment']",
+                        "button[aria-label='Remove file']",
                         "div[data-test-id*='file-preview']",
                         "div.file-preview-container",
                         "div[class*='uploader-file']"
@@ -1320,7 +1614,9 @@ object ExternalAIScripts {
                         "a[href*='/login']",
                         "button[data-testid='signup-button']",
                         "a[href*='/signup']",
-                        "button[data-testid='welcome-login-button']"
+                        "button[data-testid='welcome-login-button']",
+                        "button[data-testid*='login']",
+                        "a[data-testid*='login']"
                     )
                 ),
                 challenge = toJsonArray(
@@ -1334,12 +1630,12 @@ object ExternalAIScripts {
                 ),
                 authMarkers = toJsonArray(
                     listOf(
-                        "#prompt-textarea",
-                        "div#prompt-textarea",
                         "button[data-testid='profile-button']",
                         "button[data-testid='user-menu-button']",
-                        "button[data-testid='composer-speech-button']",
-                        "nav a[href*='/c/']"
+                        "button[data-testid='user-menu']",
+                        "[data-testid='accounts-profile-button']",
+                        "button[aria-label*='profile menu' i]",
+                        "button[aria-label*='프로필 메뉴' i]"
                     )
                 ),
                 attachTrigger = toJsonArray(
@@ -1350,6 +1646,10 @@ object ExternalAIScripts {
                         "button[aria-label*='Add photos']",
                         "button[aria-label*='사진']"
                     )
+                ),
+                attachmentMenuAction = toJsonArray(emptyList()),
+                attachmentMenuActionText = toJsonArray(
+                    listOf("사진", "Photos", "Upload photos")
                 ),
                 attachmentConfirmed = toJsonArray(
                     listOf(
@@ -1415,10 +1715,13 @@ object ExternalAIScripts {
                 login = toJsonArray(
                     listOf(
                         "input[type='email'][name='email']",
+                        "input[type='email']",
                         "a[href*='/login']",
                         "button[data-testid*='login']",
+                        "button[data-testid='login-button']",
                         "a[href*='/signup']",
-                        "button[data-testid*='signup']"
+                        "button[data-testid*='signup']",
+                        "button[data-testid='signup-button']"
                     )
                 ),
                 challenge = toJsonArray(
@@ -1430,9 +1733,8 @@ object ExternalAIScripts {
                 ),
                 authMarkers = toJsonArray(
                     listOf(
-                        "div.ProseMirror[contenteditable='true']",
                         "button[data-testid='user-menu-button']",
-                        "button[data-testid='chat-input-send-button']"
+                        "button[data-testid='user-menu']"
                     )
                 ),
                 attachTrigger = toJsonArray(
@@ -1442,6 +1744,8 @@ object ExternalAIScripts {
                         "button[aria-label*='업로드']"
                     )
                 ),
+                attachmentMenuAction = toJsonArray(emptyList()),
+                attachmentMenuActionText = toJsonArray(emptyList()),
                 attachmentConfirmed = toJsonArray(
                     listOf(
                         "div[data-testid='file-thumbnail']",
@@ -1458,8 +1762,15 @@ object ExternalAIScripts {
                 error = toJsonArray(listOf(".text-destructive", "div.error-container")),
                 login = toJsonArray(listOf("a[href*='/login']", "button[data-testid*='login']", "a[href*='/signin']")),
                 challenge = toJsonArray(listOf("iframe[src*='challenges']")),
-                authMarkers = toJsonArray(listOf("textarea", "button[data-testid='user-menu-button']")),
+                authMarkers = toJsonArray(
+                    listOf(
+                        "button[data-testid='user-menu-button']",
+                        "button[aria-label*='Account' i]"
+                    )
+                ),
                 attachTrigger = toJsonArray(listOf("button[aria-label*='Attach']")),
+                attachmentMenuAction = toJsonArray(emptyList()),
+                attachmentMenuActionText = toJsonArray(emptyList()),
                 attachmentConfirmed = toJsonArray(listOf("div[data-testid*='attachment']"))
             )
         }
@@ -1517,6 +1828,12 @@ object ExternalAIScripts {
         } catch (_: Exception) {
             defaultValue
         }
+    }
+
+    private fun JsonObject.optInt(key: String, defaultValue: Int): Int {
+        val value = get(key) ?: return defaultValue
+        if (value.isJsonNull || !value.isJsonPrimitive) return defaultValue
+        return runCatching { value.asInt }.getOrDefault(defaultValue)
     }
 
     private fun JsonObject.optString(key: String, defaultValue: String = ""): String {

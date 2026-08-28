@@ -1,0 +1,22 @@
+{
+  "provider": "gemini",
+  "sanitized": true,
+  "observedAt": "2026-08-28T23:47:52+09:00",
+  "deviceClass": "Android phone",
+  "stage": "native-file-chooser-handoff",
+  "visibleSequence": [
+    "업로드 및 도구",
+    "파일",
+    "WebChromeClient.onShowFileChooser"
+  ],
+  "requestedImageCount": 5,
+  "photoInputMultiple": false,
+  "fileChooserMode": "MODE_OPEN_MULTIPLE",
+  "legacyPreviewSelectorCount": 0,
+  "semanticAttachmentCloseActionCount": 5,
+  "rejectedFalsePositiveSelector": "button[data-test-id*='upload-file']",
+  "acceptedFileActionSelector": "images-files-uploader[data-test-id='uploader-images-files-button-advanced'] button",
+  "observedResult": "all-five-native-uris-attached-but-legacy-preview-selector-reported-zero",
+  "expectedResult": "semantic-close-action-count-confirms-exact-native-batch-before-submit",
+  "containsPrivateContent": false
+}

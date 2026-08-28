@@ -12,6 +12,7 @@ import android.webkit.WebResourceRequest
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import android.webkit.WebStorage
 import android.widget.FrameLayout
 import com.armsone.starmanager.service.DirectAIProvider
 import kotlinx.coroutines.Dispatchers
@@ -26,6 +27,23 @@ import kotlin.coroutines.resume
  * 실제 DOM 긍정 증거를 바탕으로 인증 상태를 비동기로 판별하는 프로버.
  */
 object ExternalAIAuthStatus {
+    private const val AUTH_STATE_PREFERENCES = "aibi_auth_state"
+    private const val EXPLICIT_LOGOUT_PREFIX = "explicit_logout_"
+
+    private fun explicitLogoutKey(provider: DirectAIProvider): String =
+        EXPLICIT_LOGOUT_PREFIX + provider.rawValue
+
+    private fun wasExplicitlyLoggedOut(context: Context, provider: DirectAIProvider): Boolean =
+        context.getSharedPreferences(AUTH_STATE_PREFERENCES, Context.MODE_PRIVATE)
+            .getBoolean(explicitLogoutKey(provider), false)
+
+    /** Allows the provider to be probed again once the user deliberately opens its login flow. */
+    fun markLoginFlowStarted(context: Context, provider: DirectAIProvider) {
+        context.getSharedPreferences(AUTH_STATE_PREFERENCES, Context.MODE_PRIVATE)
+            .edit()
+            .remove(explicitLogoutKey(provider))
+            .apply()
+    }
 
     /**
      * 지정한 제공사의 인증 상태를 백그라운드 WebView로 안전하게 프로빙한다.
@@ -36,12 +54,15 @@ object ExternalAIAuthStatus {
     suspend fun probe(
         context: Context,
         provider: DirectAIProvider,
-        timeoutMs: Long = 7_000L
+        timeoutMs: Long = 12_000L
     ): ExternalAIAuthState = withContext(Dispatchers.Main) {
+        if (wasExplicitlyLoggedOut(context, provider)) {
+            return@withContext ExternalAIAuthState.REQUIRES_LOGIN
+        }
         val result = withTimeoutOrNull(timeoutMs) {
             probeInternal(context, provider)
         }
-        result ?: ExternalAIAuthState.CHECKING
+        result ?: ExternalAIAuthState.UNKNOWN
     }
 
     private suspend fun probeInternal(
@@ -52,13 +73,21 @@ object ExternalAIAuthStatus {
         val hostView = context.findActivity()?.window?.decorView as? ViewGroup
         val hasCompleted = AtomicBoolean(false)
 
-        // WKWebView 기준 구현과 같이 실제 레이아웃 크기를 가진 채 화면 밖에 붙인다.
-        // 창에 붙지 않은 WebView는 일부 SPA가 렌더링·하이드레이션되지 않아 상태가 영원히 확인 중에 머문다.
+        // Provider portals need a real on-screen layout to hydrate account controls. Keep the
+        // probe behind the opaque app surface at near-zero alpha instead of moving it off-screen.
+        val density = context.resources.displayMetrics.density
+        webView.alpha = 0.001f
+        webView.isClickable = false
+        webView.isFocusable = false
+        webView.importantForAccessibility = android.view.View.IMPORTANT_FOR_ACCESSIBILITY_NO
         hostView?.addView(
             webView,
-            FrameLayout.LayoutParams(375, 667, Gravity.TOP or Gravity.START).apply {
-                leftMargin = -10_000
-            }
+            0,
+            FrameLayout.LayoutParams(
+                (412 * density).toInt(),
+                (892 * density).toInt(),
+                Gravity.TOP or Gravity.START
+            )
         )
 
         fun complete(state: ExternalAIAuthState) {
@@ -107,7 +136,7 @@ object ExternalAIAuthStatus {
                 ): Boolean {
                     val targetUrl = request?.url?.toString()
                     if (!ExternalAISecurityPolicy.isAllowedUrl(targetUrl, provider)) {
-                        complete(ExternalAIAuthState.CHECKING)
+                        complete(ExternalAIAuthState.UNKNOWN)
                         return true
                     }
                     if (ExternalAISecurityPolicy.isAuthOrigin(targetUrl, provider) ||
@@ -131,7 +160,7 @@ object ExternalAIAuthStatus {
                     }
 
                     if (!ExternalAISecurityPolicy.canInjectScript(url, provider)) {
-                        complete(ExternalAIAuthState.CHECKING)
+                        complete(ExternalAIAuthState.UNKNOWN)
                         return
                     }
 
@@ -144,13 +173,13 @@ object ExternalAIAuthStatus {
 
                             val currentUrl = wv.url
                             if (!ExternalAISecurityPolicy.canInjectScript(currentUrl, provider)) {
-                                complete(ExternalAIAuthState.CHECKING)
+                                complete(ExternalAIAuthState.UNKNOWN)
                                 return
                             }
 
                             val script = ExternalAIScripts.checkAuthStatusScript(
                                 provider = provider,
-                                requireVisible = false
+                                requireVisible = true
                             )
                             wv.evaluateJavascript(script) { rawRes ->
                                 if (hasCompleted.get()) return@evaluateJavascript
@@ -161,11 +190,31 @@ object ExternalAIAuthStatus {
                                 } else if (checkResult.hasLogin) {
                                     complete(ExternalAIAuthState.REQUIRES_LOGIN)
                                 } else if (checkResult.hasChallenge) {
-                                    complete(ExternalAIAuthState.CHECKING)
+                                    complete(ExternalAIAuthState.UNKNOWN)
                                 } else {
+                                    if ((provider == DirectAIProvider.GEMINI ||
+                                            provider == DirectAIProvider.OPEN_AI) && pollCount == 0
+                                    ) {
+                                        val menuSelector = when (provider) {
+                                            DirectAIProvider.GEMINI -> "button[data-test-id='side-nav-menu-button']"
+                                            DirectAIProvider.OPEN_AI -> "button[data-testid='open-sidebar-button']"
+                                            else -> ""
+                                        }
+                                        wv.evaluateJavascript(
+                                            """
+                                            (function() {
+                                                var button = document.querySelector(${org.json.JSONObject.quote(menuSelector)});
+                                                if (!button) return false;
+                                                button.click();
+                                                return true;
+                                            })();
+                                            """.trimIndent(),
+                                            null
+                                        )
+                                    }
                                     pollCount++
-                                    if (pollCount >= 12) {
-                                        complete(ExternalAIAuthState.CHECKING)
+                                    if (pollCount >= 25) {
+                                        complete(ExternalAIAuthState.UNKNOWN)
                                     } else {
                                         wv.postDelayed(this, 400L)
                                     }
@@ -181,15 +230,77 @@ object ExternalAIAuthStatus {
                     error: WebResourceError?
                 ) {
                     super.onReceivedError(view, request, error)
-                    if (request?.isForMainFrame == true) {
-                        complete(ExternalAIAuthState.CHECKING)
-                    }
+                    // SPA redirects can abort an intermediate main-frame request even though the
+                    // canonical provider page immediately replaces it and hydrates successfully.
+                    // Keep the bounded outer timeout authoritative instead of publishing UNKNOWN
+                    // on the first transient navigation error.
                 }
             }
 
             webView.loadUrl(provider.url)
+            // Some provider SPAs (notably ChatGPT) keep their initial navigation open long
+            // enough that onPageFinished is not a reliable gate. Run the same positive-evidence
+            // probe independently; complete() guarantees exactly one published result.
+            webView.postDelayed(object : Runnable {
+                var pollCount = 0
+
+                override fun run() {
+                    if (hasCompleted.get() || !continuation.isActive) return
+                    val currentUrl = webView.url
+                    if (!ExternalAISecurityPolicy.canInjectScript(currentUrl, provider)) {
+                        pollCount++
+                        if (pollCount < 28) webView.postDelayed(this, 350L)
+                        return
+                    }
+
+                    val script = ExternalAIScripts.checkAuthStatusScript(
+                        provider = provider,
+                        requireVisible = true
+                    )
+                    webView.evaluateJavascript(script) { rawRes ->
+                        if (hasCompleted.get()) return@evaluateJavascript
+                        val checkResult = ExternalAIScripts.parseAuthCheckResult(rawRes)
+                        when {
+                            checkResult.authenticated -> complete(ExternalAIAuthState.LOGGED_IN)
+                            checkResult.hasLogin -> complete(ExternalAIAuthState.REQUIRES_LOGIN)
+                            checkResult.hasChallenge -> complete(ExternalAIAuthState.UNKNOWN)
+                            else -> {
+                                if (provider == DirectAIProvider.OPEN_AI &&
+                                    pollCount < 16 && pollCount % 2 == 0
+                                ) {
+                                    webView.evaluateJavascript(
+                                        "document.querySelector(\"button[data-testid='open-sidebar-button']\")?.click();",
+                                        null
+                                    )
+                                }
+                                pollCount++
+                                if (pollCount < 28) webView.postDelayed(this, 350L)
+                            }
+                        }
+                    }
+                }
+            }, 700L)
         } catch (e: Exception) {
-            complete(ExternalAIAuthState.CHECKING)
+            complete(ExternalAIAuthState.UNKNOWN)
+        }
+    }
+
+    /** Clears the shared AIBI WebView session so every provider can be signed in again. */
+    suspend fun clearAllSessions(context: Context): Boolean = withContext(Dispatchers.Main) {
+        suspendCancellableCoroutine { continuation ->
+            CookieManager.getInstance().removeAllCookies { removed ->
+                CookieManager.getInstance().flush()
+                WebStorage.getInstance().deleteAllData()
+                context.getSharedPreferences(AUTH_STATE_PREFERENCES, Context.MODE_PRIVATE)
+                    .edit()
+                    .apply {
+                        putBoolean(explicitLogoutKey(DirectAIProvider.GEMINI), true)
+                        putBoolean(explicitLogoutKey(DirectAIProvider.OPEN_AI), true)
+                        putBoolean(explicitLogoutKey(DirectAIProvider.CLAUDE), true)
+                    }
+                    .apply()
+                if (continuation.isActive) continuation.resume(removed)
+            }
         }
     }
 }

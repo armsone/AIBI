@@ -1,0 +1,15 @@
+{
+  "provider": "gemini",
+  "state": "authenticated-account-menu",
+  "sanitized": true,
+  "containsPrivateContent": false,
+  "visibleLoginElements": [],
+  "visibleAuthenticatedElements": [
+    "a[href*='accounts.google.com/SignOutOptions']"
+  ],
+  "expected": {
+    "authenticated": true,
+    "hasLogin": false,
+    "hasChallenge": false
+  }
+}

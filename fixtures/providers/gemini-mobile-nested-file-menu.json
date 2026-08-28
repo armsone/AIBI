@@ -1,0 +1,16 @@
+{
+  "provider": "gemini",
+  "sanitized": true,
+  "observedAt": "2026-08-28T22:14:04+09:00",
+  "deviceClass": "iPhone",
+  "stage": "attachment-input-discovery",
+  "visibleSequence": [
+    "업로드 및 도구",
+    "파일",
+    "native-multiple-file-panel"
+  ],
+  "requestedImageCount": 5,
+  "observedResult": "visible-fallback-with-upload-menu-open",
+  "expectedResult": "choose-file-action-and-present-all-five-urls-atomically",
+  "containsPrivateContent": false
+}

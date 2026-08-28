@@ -1,0 +1,18 @@
+{
+  "provider": "claude",
+  "state": "logged-out-public-page",
+  "sanitized": true,
+  "containsPrivateContent": false,
+  "visibleGenericElements": [
+    "div[contenteditable='true']"
+  ],
+  "visibleLoginElements": [
+    "a[href*='/login']"
+  ],
+  "visibleAuthenticatedElements": [],
+  "expected": {
+    "authenticated": false,
+    "hasLogin": true,
+    "hasChallenge": false
+  }
+}

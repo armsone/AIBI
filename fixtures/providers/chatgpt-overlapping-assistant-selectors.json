@@ -1,0 +1,14 @@
+{
+  "provider": "chatgpt",
+  "sanitized": true,
+  "traceType": "device-observed-selector-overlap",
+  "observed": "one assistant answer matched both the author-role and markdown selector families",
+  "expectedUniqueAssistantCount": 2,
+  "expectedLatestValueRange": {
+    "low": 30000,
+    "high": 40000
+  },
+  "containsPrompt": false,
+  "containsAnswerText": false,
+  "containsSessionData": false
+}

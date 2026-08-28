@@ -1,0 +1,34 @@
+{
+  "provider": "chatgpt",
+  "platform": "android-mobile-webview",
+  "sanitized": true,
+  "containsPrivateContent": false,
+  "observedState": "composer-plus-menu-open",
+  "visibleAttachmentActions": [
+    { "role": "menuitem", "text": "카메라" },
+    { "role": "menuitem", "text": "사진" },
+    { "role": "menuitem", "text": "파일" }
+  ],
+  "target": { "role": "menuitem", "text": "사진" },
+  "hiddenDeviceTrace": {
+    "directImageInputBeforeMenu": "not-hydrated",
+    "menuFoundAttempt": 1,
+    "menuDiscoveryCadenceMs": 500,
+    "hiddenWebViewClickHandling": "enabled-behind-opaque-host",
+    "hiddenWebViewRendering": "near-transparent-behind-opaque-host",
+    "hiddenWebViewFocus": "touch-focus-during-trusted-attachment-gesture",
+    "hiddenViewport": "clamped-to-attached-host-bounds",
+    "trustedTouchLayering": "remain-behind-opaque-host",
+    "triggerTransport": "trusted-touch-plus-then-trusted-touch-photo-menuitem",
+    "nativeChooser": "MODE_OPEN_MULTIPLE",
+    "preparedCount": 5,
+    "observedPreviewCount": 5,
+    "expectedAction": "keep-hidden-and-continue"
+  },
+  "expectedSequence": [
+    "composer-plus",
+    "photo-menuitem",
+    "WebChromeClient.onShowFileChooser"
+  ],
+  "forbiddenOutcome": "visible-manual-fallback-while-browser-view-is-off"
+}

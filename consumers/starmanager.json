@@ -9,6 +9,11 @@
       "verification": "xcodebuild -project StarManager.xcodeproj -scheme StarManager -sdk iphonesimulator -configuration Debug build CODE_SIGNING_ALLOWED=NO",
       "files": [
         {
+          "source": "profiles/starmanager/distribution/ios/AIBIMediaPipeline.swift",
+          "destination": "StarManager/Features/Composer/AIBIMediaPipeline.swift",
+          "scope": "apple-media-adapter"
+        },
+        {
           "source": "profiles/starmanager/distribution/ios/ExternalAIBrowserView.swift",
           "destination": "StarManager/Features/Composer/ExternalAIBrowserView.swift",
           "scope": "host-adapted-runtime"
@@ -21,6 +26,16 @@
       "lockFile": ".aibi-lock.json",
       "verification": "./gradlew testDebugUnitTest assembleDebug",
       "files": [
+        {
+          "source": "profiles/starmanager/distribution/android/ExternalAINativeFileBridge.kt",
+          "destination": "app/src/main/java/com/armsone/starmanager/ui/externalai/ExternalAINativeFileBridge.kt",
+          "scope": "android-media-adapter"
+        },
+        {
+          "source": "profiles/starmanager/distribution/android/ExternalAIMediaPipeline.kt",
+          "destination": "app/src/main/java/com/armsone/starmanager/ui/externalai/ExternalAIMediaPipeline.kt",
+          "scope": "android-media-adapter"
+        },
         {
           "source": "profiles/starmanager/distribution/android/ExternalAIModels.kt",
           "destination": "app/src/main/java/com/armsone/starmanager/ui/externalai/ExternalAIModels.kt",
