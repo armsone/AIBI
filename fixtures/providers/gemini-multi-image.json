@@ -1,0 +1,9 @@
+{
+  "provider": "gemini",
+  "sanitized": true,
+  "requestedImageCount": 8,
+  "attachmentTrigger": "button[aria-label='업로드 및 도구']",
+  "attachmentInput": "input[type='file'][accept='image/*'][multiple]",
+  "attachmentPreview": "uploader-file-preview",
+  "expected": "all-eight-previews-before-submit"
+}

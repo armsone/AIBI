@@ -68,6 +68,50 @@
     return rect.width > 0 && rect.height > 0;
   }
 
+  function visibleFamilyCount(selectors) {
+    if (!selectors) return 0;
+    const list = Array.isArray(selectors) ? selectors : [selectors];
+    let maximum = 0;
+    for (const selector of list) {
+      try {
+        const count = Array.from(document.querySelectorAll(selector)).filter(isVisible).length;
+        maximum = Math.max(maximum, count);
+      } catch (_) {}
+    }
+    return maximum;
+  }
+
+  function preferredAttachmentInput(config) {
+    const selectors = config && config.selectors && config.selectors.attachmentInput;
+    const candidates = queryAll(selectors).filter((input) => !input.disabled);
+    return (
+      candidates.find((input) => /image/i.test(input.getAttribute('accept') || '') && input.multiple) ||
+      candidates.find((input) => /image/i.test(input.getAttribute('accept') || '')) ||
+      candidates.find((input) => input.multiple) ||
+      candidates[candidates.length - 1] ||
+      null
+    );
+  }
+
+  function fileFromDataUrl(image) {
+    const dataUrl = image && image.dataUrl;
+    if (typeof dataUrl !== 'string') throw new Error('INVALID_IMAGE_DATA');
+    const comma = dataUrl.indexOf(',');
+    if (comma < 0) throw new Error('INVALID_DATA_URL');
+    const header = dataUrl.slice(0, comma);
+    const payload = dataUrl.slice(comma + 1);
+    const binary = /;base64/i.test(header) ? atob(payload) : decodeURIComponent(payload);
+    const bytes = new Uint8Array(binary.length);
+    for (let index = 0; index < binary.length; index += 1) {
+      bytes[index] = binary.charCodeAt(index);
+    }
+    const mimeType = image.mimeType || 'image/jpeg';
+    return new File([new Blob([bytes], { type: mimeType })], image.filename, {
+      type: mimeType,
+      lastModified: Date.now(),
+    });
+  }
+
   /**
    * 1. Baseline State Discovery
    * Records assistant message count and security/login states before prompt injection.
@@ -160,6 +204,92 @@
         success: false,
         error: String(err && err.message ? err.message : err),
       });
+    }
+  };
+
+  /**
+   * Optional media input discovery. Calling this may open the provider's attachment menu;
+   * it never chooses files or submits the prompt.
+   */
+  RUNTIME.prepareAttachmentInput = function (config) {
+    try {
+      let input = preferredAttachmentInput(config);
+      if (!input) {
+        const trigger = queryFirst(config.selectors.attachmentTrigger);
+        if (trigger && isVisible(trigger)) trigger.click();
+        input = preferredAttachmentInput(config);
+      }
+      return JSON.stringify({
+        success: true,
+        data: {
+          inputFound: !!input,
+          allowsMultiple: !!(input && input.multiple),
+          previewCount: visibleFamilyCount(config.selectors.attachmentPreview),
+        },
+      });
+    } catch (err) {
+      return JSON.stringify({ success: false, code: 'ATTACHMENT_PREPARE_FAILED', error: String(err && err.message ? err.message : err) });
+    }
+  };
+
+  /**
+   * Atomically assigns an ordered image batch to the provider's public file input.
+   * Images are already normalized by the native adapter; this runtime only transports them.
+   */
+  RUNTIME.attachImages = function (config, images) {
+    try {
+      const capabilities = config.mediaCapabilities || {};
+      const maximum = Math.min(8, capabilities.maxImagesPerTask || 8);
+      if (!Array.isArray(images) || images.length < 1) {
+        return JSON.stringify({ success: false, code: 'NO_ATTACHMENTS', error: 'No image attachments were supplied.' });
+      }
+      if (images.length > maximum) {
+        return JSON.stringify({ success: false, code: 'ATTACHMENT_LIMIT_EXCEEDED', error: 'Image attachment limit exceeded.' });
+      }
+
+      const input = preferredAttachmentInput(config);
+      if (!input) {
+        return JSON.stringify({ success: false, code: 'ATTACHMENT_INPUT_NOT_FOUND', error: 'Image attachment input was not found.' });
+      }
+      if (images.length > 1 && !input.multiple && capabilities.requiresMultipleInputForBatch !== false) {
+        return JSON.stringify({ success: false, code: 'MULTIPLE_SELECTION_UNSUPPORTED', error: 'The provider input does not accept an atomic image batch.' });
+      }
+
+      const transfer = new DataTransfer();
+      images.forEach((image, index) => {
+        const safeFilename = /^aibi-\d{2}\.jpg$/.test(image.filename || '')
+          ? image.filename
+          : `aibi-${String(index + 1).padStart(2, '0')}.jpg`;
+        transfer.items.add(fileFromDataUrl({ ...image, filename: safeFilename }));
+      });
+      input.files = transfer.files;
+      input.dispatchEvent(new Event('change', { bubbles: true, composed: true }));
+      input.dispatchEvent(new Event('input', { bubbles: true, composed: true }));
+
+      return JSON.stringify({
+        success: true,
+        data: {
+          acceptedCount: transfer.files.length,
+          previewCount: visibleFamilyCount(config.selectors.attachmentPreview),
+        },
+      });
+    } catch (err) {
+      return JSON.stringify({ success: false, code: 'ATTACHMENT_ASSIGNMENT_FAILED', error: String(err && err.message ? err.message : err) });
+    }
+  };
+
+  /**
+   * Counts one provider preview family at a time, preventing nested preview selectors from
+   * double-counting a single attachment.
+   */
+  RUNTIME.getAttachmentState = function (config) {
+    try {
+      return JSON.stringify({
+        success: true,
+        data: { previewCount: visibleFamilyCount(config.selectors.attachmentPreview) },
+      });
+    } catch (err) {
+      return JSON.stringify({ success: false, code: 'ATTACHMENT_STATE_FAILED', error: String(err && err.message ? err.message : err) });
     }
   };
 

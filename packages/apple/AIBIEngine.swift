@@ -21,6 +21,7 @@ public enum AIBIPhase: String, Codable, Equatable {
     case initializing = "INITIALIZING"
     case navigating = "NAVIGATING"
     case readyChecking = "READY_CHECKING"
+    case attachingMedia = "ATTACHING_MEDIA"
     case injectingPrompt = "INJECTING_PROMPT"
     case submitting = "SUBMITTING"
     case generating = "GENERATING"
@@ -36,6 +37,7 @@ public enum AIBIFallbackReason: String, Codable, Equatable {
     case securityChallengePresented = "SECURITY_CHALLENGE_PRESENTED"
     case navigationDisallowed = "NAVIGATION_DISALLOWED"
     case inputMissing = "INPUT_NOT_FOUND"
+    case attachmentFailed = "ATTACHMENT_FAILED"
     case readinessTimeout = "READINESS_TIMEOUT"
     case userInterventionRequested = "USER_INTERVENTION_REQUESTED"
 }
@@ -49,6 +51,7 @@ public struct AIBITask: Identifiable, Equatable {
     public let id: UUID
     public let providerId: String
     public let promptText: String
+    public let attachments: [AIBIMediaAttachment]
     public let presentation: AIBIPresentationPreference
     public let forceFill: Bool
 
@@ -56,12 +59,14 @@ public struct AIBITask: Identifiable, Equatable {
         id: UUID = UUID(),
         providerId: String,
         promptText: String,
+        attachments: [AIBIMediaAttachment] = [],
         presentation: AIBIPresentationPreference = .visibleWhenNeeded,
         forceFill: Bool = false
     ) {
         self.id = id
         self.providerId = providerId
         self.promptText = promptText
+        self.attachments = attachments
         self.presentation = presentation
         self.forceFill = forceFill
     }
@@ -116,6 +121,15 @@ public struct AIBIProviderSelectors: Codable, Equatable {
     public let errorBanner: [String]
     public let loginIndicator: [String]
     public let challengeIndicator: [String]
+    public var attachmentInput: [String]? = nil
+    public var attachmentTrigger: [String]? = nil
+    public var attachmentPreview: [String]? = nil
+}
+
+public struct AIBIMediaCapabilities: Codable, Equatable {
+    public let supportsImages: Bool
+    public let maxImagesPerTask: Int
+    public let requiresMultipleInputForBatch: Bool
 }
 
 public struct AIBIProviderConfig: Identifiable, Codable, Equatable {
@@ -125,6 +139,7 @@ public struct AIBIProviderConfig: Identifiable, Codable, Equatable {
     public let allowedScriptOrigins: [String]
     public let allowedAuthOrigins: [String]
     public let selectors: AIBIProviderSelectors
+    public var mediaCapabilities: AIBIMediaCapabilities? = nil
 }
 
 // MARK: - Session Configuration & Timers Profile
@@ -133,6 +148,8 @@ public struct AIBITimingProfile {
     public var readinessTimeout: TimeInterval = 35.0
     public var readinessCadence: TimeInterval = 0.7
     public var maxReadinessMisses: Int = 12 // ~8.4s of consecutive misses
+    public var attachmentTimeout: TimeInterval = 30.0
+    public var attachmentCadence: TimeInterval = 0.35
     public var submitTimeout: TimeInterval = 15.0
     public var submitCadence: TimeInterval = 0.5
     public var submitVerificationDelay: TimeInterval = 0.7
@@ -209,6 +226,14 @@ public final class AIBISession: NSObject, ObservableObject {
         self.taskStartTime = Date()
         self.lastErrorMessage = nil
         self.pendingResult = nil
+
+        let media = providerConfig.mediaCapabilities
+        if task.attachments.count > 8 ||
+            (!task.attachments.isEmpty &&
+                (media?.supportsImages != true || task.attachments.count > (media?.maxImagesPerTask ?? 0))) {
+            failWithError("Image attachments are not supported for this task.")
+            return
+        }
 
         updatePhase(.initializing, message: "Connecting to \(providerConfig.displayName)...")
         startElapsedTimer()
@@ -400,6 +425,19 @@ public final class AIBISession: NSObject, ObservableObject {
             self.baselineAssistantCount = data["assistantCount"] as? Int ?? 0
         }
 
+        if !task.attachments.isEmpty {
+            let attached = await attachImagesAtomically(
+                task.attachments,
+                config: config,
+                webView: webView,
+                generation: generation
+            )
+            guard attached else {
+                if generationId == generation { escalateToVisible(reason: .attachmentFailed) }
+                return
+            }
+        }
+
         // Inject prompt
         let escapedPrompt = escapeJsString(task.promptText)
         let injectScript = "window.__AIBI_RUNTIME__.injectPrompt(\(configJson(config)), '\(escapedPrompt)', \(task.forceFill))"
@@ -418,6 +456,51 @@ public final class AIBISession: NSObject, ObservableObject {
         } catch {
             escalateToVisible(reason: .inputMissing)
         }
+    }
+
+    private func attachImagesAtomically(
+        _ attachments: [AIBIMediaAttachment],
+        config: AIBIProviderConfig,
+        webView: WKWebView,
+        generation: UInt64
+    ) async -> Bool {
+        updatePhase(.attachingMedia, message: "Attaching \(attachments.count) photos...", isWaiting: true)
+        let encodedConfig = configJson(config)
+        let stateScript = "window.__AIBI_RUNTIME__.getAttachmentState(\(encodedConfig))"
+        let baseline = (try? await evaluateScript(stateScript, on: webView)).flatMap(parseAttachmentPreviewCount) ?? 0
+
+        _ = try? await evaluateScript("window.__AIBI_RUNTIME__.prepareAttachmentInput(\(encodedConfig))", on: webView)
+        try? await Task.sleep(nanoseconds: 700_000_000)
+        guard generationId == generation else { return false }
+
+        let payload: [[String: String]] = attachments.sorted { $0.sourceIndex < $1.sourceIndex }.map {
+            ["dataUrl": $0.dataURL, "mimeType": $0.mimeType, "filename": $0.filename]
+        }
+        guard let payloadData = try? JSONSerialization.data(withJSONObject: payload),
+              let payloadJson = String(data: payloadData, encoding: .utf8),
+              let attachResult = try? await evaluateScript(
+                "window.__AIBI_RUNTIME__.attachImages(\(encodedConfig), \(payloadJson))",
+                on: webView
+              ),
+              parseJson(attachResult)?["success"] as? Bool == true else {
+            return false
+        }
+
+        let deadline = Date().addingTimeInterval(timingProfile.attachmentTimeout)
+        while generationId == generation && Date() < deadline {
+            if let state = try? await evaluateScript(stateScript, on: webView),
+               let count = parseAttachmentPreviewCount(state),
+               count >= baseline + attachments.count {
+                return true
+            }
+            try? await Task.sleep(nanoseconds: UInt64(timingProfile.attachmentCadence * 1_000_000_000))
+        }
+        return false
+    }
+
+    private func parseAttachmentPreviewCount(_ string: String) -> Int? {
+        guard let data = parseJson(string)?["data"] as? [String: Any] else { return nil }
+        return data["previewCount"] as? Int
     }
 
     private func startSubmissionLoop(generation: UInt64) {

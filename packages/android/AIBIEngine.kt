@@ -25,6 +25,7 @@ import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import org.json.JSONArray
 import org.json.JSONObject
 import java.util.UUID
 
@@ -35,6 +36,7 @@ enum class AIBIPhase(val value: String) {
     INITIALIZING("INITIALIZING"),
     NAVIGATING("NAVIGATING"),
     READY_CHECKING("READY_CHECKING"),
+    ATTACHING_MEDIA("ATTACHING_MEDIA"),
     INJECTING_PROMPT("INJECTING_PROMPT"),
     SUBMITTING("SUBMITTING"),
     GENERATING("GENERATING"),
@@ -50,6 +52,7 @@ enum class AIBIFallbackReason(val value: String) {
     SECURITY_CHALLENGE_PRESENTED("SECURITY_CHALLENGE_PRESENTED"),
     NAVIGATION_DISALLOWED("NAVIGATION_DISALLOWED"),
     INPUT_NOT_FOUND("INPUT_NOT_FOUND"),
+    ATTACHMENT_FAILED("ATTACHMENT_FAILED"),
     READINESS_TIMEOUT("READINESS_TIMEOUT"),
     USER_INTERVENTION_REQUESTED("USER_INTERVENTION_REQUESTED")
 }
@@ -63,6 +66,7 @@ data class AIBITask(
     val id: UUID = UUID.randomUUID(),
     val providerId: String,
     val promptText: String,
+    val attachments: List<AIBIMediaAttachment> = emptyList(),
     val presentation: AIBIPresentationPreference = AIBIPresentationPreference.VISIBLE_WHEN_NEEDED,
     val forceFill: Boolean = false
 )
@@ -111,7 +115,16 @@ data class AIBIProviderSelectors(
     val preCode: List<String>? = null,
     val errorBanner: List<String>,
     val loginIndicator: List<String>,
-    val challengeIndicator: List<String>
+    val challengeIndicator: List<String>,
+    val attachmentInput: List<String> = emptyList(),
+    val attachmentTrigger: List<String> = emptyList(),
+    val attachmentPreview: List<String> = emptyList()
+)
+
+data class AIBIMediaCapabilities(
+    val supportsImages: Boolean = false,
+    val maxImagesPerTask: Int = 0,
+    val requiresMultipleInputForBatch: Boolean = true
 )
 
 data class AIBIProviderConfig(
@@ -120,7 +133,8 @@ data class AIBIProviderConfig(
     val initialUrl: String,
     val allowedScriptOrigins: List<String>,
     val allowedAuthOrigins: List<String>,
-    val selectors: AIBIProviderSelectors
+    val selectors: AIBIProviderSelectors,
+    val mediaCapabilities: AIBIMediaCapabilities = AIBIMediaCapabilities()
 )
 
 // MARK: - Session Configuration & Timers Profile
@@ -129,6 +143,8 @@ data class AIBITimingProfile(
     val readinessTimeoutMs: Long = 35_000L,
     val readinessCadenceMs: Long = 700L,
     val maxReadinessMisses: Int = 12, // ~8.4s of consecutive misses
+    val attachmentTimeoutMs: Long = 30_000L,
+    val attachmentCadenceMs: Long = 350L,
     val submitTimeoutMs: Long = 15_000L,
     val submitCadenceMs: Long = 500L,
     val submitVerificationDelayMs: Long = 700L,
@@ -208,6 +224,14 @@ class AIBISession(
         taskStartTimeMs = System.currentTimeMillis()
         _lastErrorMessage.value = null
         _pendingResult.value = null
+
+        if (task.attachments.size > 8 ||
+            (task.attachments.isNotEmpty() &&
+                (!providerConfig.mediaCapabilities.supportsImages ||
+                    task.attachments.size > providerConfig.mediaCapabilities.maxImagesPerTask))) {
+            failWithError("Image attachments are not supported for this task.")
+            return
+        }
 
         updatePhase(AIBIPhase.INITIALIZING, "Connecting to ${providerConfig.displayName}...")
         startElapsedTimer()
@@ -408,6 +432,11 @@ class AIBISession(
                 } catch (_: Exception) {}
             }
 
+            if (task.attachments.isNotEmpty() && !attachImagesAtomically(webView, config, task, generation)) {
+                if (generationId == generation) escalateToVisible(AIBIFallbackReason.ATTACHMENT_FAILED)
+                return@launch
+            }
+
             // Inject
             val escapedPrompt = JSONObject.quote(task.promptText)
             val injectScript = "window.__AIBI_RUNTIME__.injectPrompt($configJsonStr, $escapedPrompt, ${task.forceFill})"
@@ -420,6 +449,53 @@ class AIBISession(
                 escalateToVisible(AIBIFallbackReason.INPUT_NOT_FOUND)
             }
         }
+    }
+
+    private suspend fun attachImagesAtomically(
+        webView: WebView,
+        config: AIBIProviderConfig,
+        task: AIBITask,
+        generation: Long
+    ): Boolean {
+        updatePhase(AIBIPhase.ATTACHING_MEDIA, "Attaching ${task.attachments.size} photos...", isWaiting = true)
+        val configJsonStr = buildConfigJsonString(config)
+        val stateScript = "window.__AIBI_RUNTIME__.getAttachmentState($configJsonStr)"
+        val baseline = parseAttachmentPreviewCount(evaluateScript(webView, stateScript)) ?: 0
+
+        val prepareScript = "window.__AIBI_RUNTIME__.prepareAttachmentInput($configJsonStr)"
+        evaluateScript(webView, prepareScript)
+        delay(700L)
+        if (generationId != generation) return false
+
+        val imageJson = JSONArray()
+        task.attachments.sortedBy { it.sourceIndex }.forEach { attachment ->
+            imageJson.put(JSONObject(mapOf(
+                "dataUrl" to attachment.dataUrl(),
+                "mimeType" to attachment.mimeType,
+                "filename" to attachment.filename
+            )))
+        }
+        val attachScript = "window.__AIBI_RUNTIME__.attachImages($configJsonStr, ${imageJson})"
+        val attachResult = evaluateScript(webView, attachScript) ?: return false
+        try {
+            if (!JSONObject(attachResult).optBoolean("success", false)) return false
+        } catch (_: Exception) {
+            return false
+        }
+
+        val deadline = System.currentTimeMillis() + timingProfile.attachmentTimeoutMs
+        while (generationId == generation && System.currentTimeMillis() < deadline) {
+            val previewCount = parseAttachmentPreviewCount(evaluateScript(webView, stateScript)) ?: 0
+            if (previewCount >= baseline + task.attachments.size) return true
+            delay(timingProfile.attachmentCadenceMs)
+        }
+        return false
+    }
+
+    private fun parseAttachmentPreviewCount(raw: String?): Int? = try {
+        JSONObject(raw ?: return null).optJSONObject("data")?.optInt("previewCount")
+    } catch (_: Exception) {
+        null
     }
 
     private fun startSubmissionLoop(generation: Long) {
@@ -761,7 +837,15 @@ class AIBISession(
                 "preCode" to (config.selectors.preCode ?: listOf("pre code")),
                 "errorBanner" to config.selectors.errorBanner,
                 "loginIndicator" to config.selectors.loginIndicator,
-                "challengeIndicator" to config.selectors.challengeIndicator
+                "challengeIndicator" to config.selectors.challengeIndicator,
+                "attachmentInput" to config.selectors.attachmentInput,
+                "attachmentTrigger" to config.selectors.attachmentTrigger,
+                "attachmentPreview" to config.selectors.attachmentPreview
+            )),
+            "mediaCapabilities" to JSONObject(mapOf(
+                "supportsImages" to config.mediaCapabilities.supportsImages,
+                "maxImagesPerTask" to config.mediaCapabilities.maxImagesPerTask,
+                "requiresMultipleInputForBatch" to config.mediaCapabilities.requiresMultipleInputForBatch
             ))
         )).toString()
     }
