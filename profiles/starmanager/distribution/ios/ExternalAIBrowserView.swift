@@ -174,9 +174,11 @@ struct ExternalAIHiddenAutomatorView: View {
             if let attachment, !attachConfirmed, bridge.isPageReady {
                 if !hasAttemptedAttach {
                     hasAttemptedAttach = true
-                    _ = await bridge.attachPhoto(attachment)
-                    try? await Task.sleep(nanoseconds: 500_000_000)
-                    attachConfirmed = await bridge.isAttachmentConfirmed()
+                    attachConfirmed = await bridge.attachPhoto(attachment, provider: provider)
+                    if !attachConfirmed {
+                        try? await Task.sleep(nanoseconds: 500_000_000)
+                        attachConfirmed = await bridge.isAttachmentConfirmed()
+                    }
                 }
                 if !attachConfirmed {
                     hasTriggeredFallback = true
@@ -520,10 +522,14 @@ struct ExternalAIBrowserSheet: View {
         if attachConfirmed { return true }
         if !hasAttemptedAttach {
             hasAttemptedAttach = true
-            _ = await bridge.attachPhoto(attachment)
-            try? await Task.sleep(nanoseconds: 500_000_000)
+            attachConfirmed = await bridge.attachPhoto(attachment, provider: provider)
+            if !attachConfirmed {
+                try? await Task.sleep(nanoseconds: 500_000_000)
+            }
         }
-        attachConfirmed = await bridge.isAttachmentConfirmed()
+        if !attachConfirmed {
+            attachConfirmed = await bridge.isAttachmentConfirmed()
+        }
         needsManualAttach = !attachConfirmed
         return attachConfirmed
     }
@@ -549,6 +555,10 @@ struct ExternalAIBrowserSheet: View {
         }
         if !Task.isCancelled, !hasSubmittedPrompt {
             fillFailed = true
+            let message = "45초 동안 AI 입력창을 준비하지 못했어요. 다시 시도해 주세요."
+            detectedErrorMessage = message
+            onError?(message)
+            dismiss()
         }
     }
 
@@ -1011,6 +1021,8 @@ final class ExternalAIBrowserBridge: ObservableObject {
     @Published fileprivate(set) var detectedError: String?
 
     fileprivate weak var webView: WKWebView?
+    fileprivate var pendingAttachmentURL: URL?
+    fileprivate var nativeUploadPanelHandled = false
 
     func checkURLForInteraction(_ urlString: String) {
         if Self.isLoginURL(urlString) {
@@ -1055,24 +1067,64 @@ final class ExternalAIBrowserBridge: ObservableObject {
         }
     }
 
-    /// 대표 사진을 provider의 첨부 입력에 연결한다. 필요하면 먼저 첨부 버튼을 눌러 숨겨진
-    /// 파일 입력을 드러낸 뒤, `DataTransfer`로 `File`을 구성해 `input.files`에 넣는 표준 DOM
-    /// API만 사용한다. 네이티브 파일 코디네이터를 우회하거나 임의 파일에 접근하지 않는다.
-    func attachPhoto(_ attachment: ExternalAIAttachment) async -> Bool {
+    /// iOS 18.4 이상에서는 WebKit의 공식 파일 선택 콜백에 앱이 만든 임시 파일 URL을
+    /// 전달한다. 제공사가 JavaScript `FileList` 변경을 무시할 때도 실제 업로드 흐름을 탄다.
+    /// 이전 버전이나 콜백을 열지 않는 페이지에서는 기존 DataTransfer 방식을 사용한다.
+    func attachPhoto(_ attachment: ExternalAIAttachment, provider: ExternalAIProvider) async -> Bool {
         guard let webView else { return false }
+        if #available(iOS 18.4, *) {
+            do {
+                let directory = FileManager.default.temporaryDirectory
+                    .appendingPathComponent("AIBIUploads", isDirectory: true)
+                try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+                let safeFilename = (attachment.filename as NSString).lastPathComponent
+                let fileURL = directory.appendingPathComponent("\(UUID().uuidString)-\(safeFilename)")
+                try attachment.data.write(to: fileURL, options: .atomic)
+                pendingAttachmentURL = fileURL
+                nativeUploadPanelHandled = false
+                let script = ExternalAIBrowserScripts.openPhotoPanelScript(for: provider)
+                _ = try await webView.evaluateJavaScript(script)
+                try? await Task.sleep(nanoseconds: 250_000_000)
+                if nativeUploadPanelHandled {
+                    if await waitForAttachmentConfirmation() { return true }
+                }
+            } catch {
+                pendingAttachmentURL = nil
+                nativeUploadPanelHandled = false
+            }
+        }
+
         let dataURL = "data:\(attachment.mimeType);base64,\(attachment.data.base64EncodedString())"
         let script = """
-        window.__starManagerAttachPhoto ? window.__starManagerAttachPhoto(\
+        return await (window.__starManagerAttachPhoto ? window.__starManagerAttachPhoto(\
         \(ExternalAIBrowserScripts.jsStringLiteral(dataURL)), \
         \(ExternalAIBrowserScripts.jsStringLiteral(attachment.mimeType)), \
-        \(ExternalAIBrowserScripts.jsStringLiteral(attachment.filename))) : false;
+        \(ExternalAIBrowserScripts.jsStringLiteral(attachment.filename))) : false);
         """
         do {
-            let result = try await webView.evaluateJavaScript(script)
-            return Self.boolean(from: result)
+            let result = try await webView.callAsyncJavaScript(
+                script,
+                arguments: [:],
+                in: nil,
+                contentWorld: .page
+            )
+            guard Self.boolean(from: result) else { return false }
+            // ChatGPT의 최신 작성기는 업로드 입력을 즉시 숨기므로 썸네일이 보이기 전에
+            // 확인 선택자가 사라질 수 있다. FileList 연결과 change 처리가 성공했다면
+            // 전송 단계로 진행하고, 실제 실패는 제공사 오류/응답 감시가 처리한다.
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
+            return true
         } catch {
             return false
         }
+    }
+
+    private func waitForAttachmentConfirmation() async -> Bool {
+        for _ in 0..<20 {
+            if await isAttachmentConfirmed() { return true }
+            try? await Task.sleep(nanoseconds: 250_000_000)
+        }
+        return false
     }
 
     /// 화면에 사진 미리보기(썸네일)가 나타났는지로 첨부 성공 여부를 확인한다.
@@ -1198,6 +1250,7 @@ private struct ExternalAIWebView: UIViewRepresentable {
 
         let webView = WKWebView(frame: .zero, configuration: configuration)
         webView.navigationDelegate = context.coordinator
+        webView.uiDelegate = context.coordinator
         webView.allowsBackForwardNavigationGestures = true
         bridge.webView = webView
         webView.load(URLRequest(url: provider.chatURL))
@@ -1210,14 +1263,35 @@ private struct ExternalAIWebView: UIViewRepresentable {
         uiView.configuration.userContentController.removeScriptMessageHandler(forName: "starManagerBridge")
         uiView.stopLoading()
         uiView.navigationDelegate = nil
+        uiView.uiDelegate = nil
     }
 
     @MainActor
-    final class Coordinator: NSObject, WKNavigationDelegate, WKScriptMessageHandler {
+    final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKScriptMessageHandler {
         private let bridge: ExternalAIBrowserBridge
 
         init(bridge: ExternalAIBrowserBridge) {
             self.bridge = bridge
+        }
+
+        @available(iOS 18.4, *)
+        func webView(
+            _ webView: WKWebView,
+            runOpenPanelWith parameters: WKOpenPanelParameters,
+            initiatedByFrame frame: WKFrameInfo,
+            completionHandler: @escaping @MainActor @Sendable ([URL]?) -> Void
+        ) {
+            guard let fileURL = bridge.pendingAttachmentURL else {
+                completionHandler(nil)
+                return
+            }
+            bridge.nativeUploadPanelHandled = true
+            bridge.pendingAttachmentURL = nil
+            completionHandler([fileURL])
+            Task {
+                try? await Task.sleep(nanoseconds: 60_000_000_000)
+                try? FileManager.default.removeItem(at: fileURL)
+            }
         }
 
         func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
@@ -1294,6 +1368,28 @@ private enum ExternalAIBrowserScripts {
         return literal
     }
 
+    static func openPhotoPanelScript(for provider: ExternalAIProvider) -> String {
+        let config = selectors(for: provider)
+        return """
+        (function() {
+          const selectors = \(jsArray(config.fileInput));
+          const candidates = [];
+          for (const selector of selectors) {
+            try {
+              for (const input of document.querySelectorAll(selector)) {
+                if (!candidates.includes(input) && !input.disabled) candidates.push(input);
+              }
+            } catch (e) {}
+          }
+          const input = candidates.find(function(item) { return !!item.closest('form'); })
+            || candidates[candidates.length - 1];
+          if (!input) return false;
+          input.click();
+          return true;
+        })();
+        """
+    }
+
     static func observerScript(for provider: ExternalAIProvider) -> String {
         let config = selectors(for: provider)
         return """
@@ -1317,6 +1413,20 @@ private enum ExternalAIBrowserScripts {
               } catch (e) {}
             }
             return null;
+          }
+
+          function queryFileInput() {
+            const candidates = [];
+            for (const selector of fileInputSelectors) {
+              try {
+                for (const input of document.querySelectorAll(selector)) {
+                  if (!candidates.includes(input) && !input.disabled) candidates.push(input);
+                }
+              } catch (e) {}
+            }
+            return candidates.find(function(item) { return !!item.closest('form'); })
+              || candidates[candidates.length - 1]
+              || null;
           }
 
           function queryAll(selectors) {
@@ -1354,10 +1464,20 @@ private enum ExternalAIBrowserScripts {
           // 첨부 버튼을 한 번 눌러 드러낸 뒤 다시 찾는다. DataTransfer로 File을 구성해
           // input.files에 넣는 표준 DOM API만 사용하며, 자동 전송은 하지 않는다.
           window.__starManagerAttachPhoto = function(dataURL, mime, filename) {
-            var input = queryFirst(fileInputSelectors);
+            var input = queryFileInput();
             var afterTrigger = function(input) {
-              return fetch(dataURL)
-                .then(function(res) { return res.blob(); })
+              return Promise.resolve().then(function() {
+                  // ChatGPT wraps fetch and rejects data: URLs. Decode locally so every provider
+                  // receives the same File without depending on page network hooks.
+                  var comma = dataURL.indexOf(',');
+                  if (comma < 0) throw new Error('INVALID_DATA_URL');
+                  var header = dataURL.slice(0, comma);
+                  var payload = dataURL.slice(comma + 1);
+                  var binary = /;base64/i.test(header) ? atob(payload) : decodeURIComponent(payload);
+                  var bytes = new Uint8Array(binary.length);
+                  for (var b = 0; b < binary.length; b++) bytes[b] = binary.charCodeAt(b);
+                  return new Blob([bytes], { type: mime });
+                })
                 .then(function(blob) {
                   var file = new File([blob], filename, { type: mime });
                   var dt = new DataTransfer();
@@ -1365,7 +1485,26 @@ private enum ExternalAIBrowserScripts {
                   input.files = dt.files;
                   input.dispatchEvent(new Event('change', { bubbles: true }));
                   input.dispatchEvent(new Event('input', { bubbles: true }));
-                  return true;
+                  return new Promise(function(resolve) {
+                    setTimeout(function() {
+                      if (queryAll(attachmentConfirmedSelectors).some(isVisible)) {
+                        resolve(true);
+                        return;
+                      }
+                      // Some ChatGPT builds ignore synthetic file-input changes in WKWebView,
+                      // but use the same supported image-upload path for pasted image files.
+                      // Dispatch the file as a paste on the active composer as a second DOM path.
+                      var composer = queryFirst(inputSelectors);
+                      if (composer) {
+                        try {
+                          var pasteEvent = new Event('paste', { bubbles: true, cancelable: true });
+                          Object.defineProperty(pasteEvent, 'clipboardData', { value: dt });
+                          composer.dispatchEvent(pasteEvent);
+                        } catch (e) {}
+                      }
+                      resolve(true);
+                    }, 800);
+                  });
                 })
                 .catch(function() { return false; });
             };
@@ -1378,10 +1517,10 @@ private enum ExternalAIBrowserScripts {
             trigger.click();
             return new Promise(function(resolve) {
               setTimeout(function() {
-                var revealed = queryFirst(fileInputSelectors);
+                var revealed = queryFileInput();
                 if (!revealed) { resolve(false); return; }
                 afterTrigger(revealed).then(resolve);
-              }, 400);
+              }, 700);
             });
           };
 
@@ -1444,6 +1583,10 @@ private enum ExternalAIBrowserScripts {
 
             window.__starManagerSubmitAttempts = (window.__starManagerSubmitAttempts || 0) + 1;
             const attempt = window.__starManagerSubmitAttempts;
+            if (!window.__starManagerBaselineCapturedForSubmit) {
+              window.__starManagerCaptureBaseline();
+              window.__starManagerBaselineCapturedForSubmit = true;
+            }
             input.focus();
 
             if (attempt === 1) {
@@ -1475,7 +1618,7 @@ private enum ExternalAIBrowserScripts {
             const current = el ? (isTextField ? el.value : (el.innerText || el.textContent || '')).trim() : '';
             const answerStarted = queryAll(assistantSelectors).length > baselineCount;
             const generating = isGeneratingNow();
-            return current.length === 0 || answerStarted || generating;
+            return (!!el && current.length === 0) || answerStarted || generating;
           };
 
           function detectInteraction() {
@@ -1523,7 +1666,24 @@ private enum ExternalAIBrowserScripts {
 
           // 감시 시작 시점의 답변 개수를 기준으로 삼아, 이전 대화 답변이나 사용자가 입력한 프롬프트를
           // 새 답변으로 잘못 가져오지 않도록 한다.
-          const baselineCount = queryAll(assistantSelectors).length;
+          const baselineItems = queryAll(assistantSelectors);
+          let baselineCount = baselineItems.length;
+          const baselineLatest = baselineItems.length > 0 ? baselineItems[baselineItems.length - 1] : null;
+          let baselineText = baselineLatest ? extractAnswerText(baselineLatest) : '';
+          let baselineKey = baselineLatest
+            ? (baselineLatest.getAttribute('data-message-id') || baselineLatest.getAttribute('data-testid') || baselineLatest.id || '')
+            : '';
+          window.__starManagerCaptureBaseline = function() {
+            const items = queryAll(assistantSelectors);
+            baselineCount = items.length;
+            const latest = items.length > 0 ? items[items.length - 1] : null;
+            baselineText = latest ? extractAnswerText(latest) : '';
+            baselineKey = latest
+              ? (latest.getAttribute('data-message-id') || latest.getAttribute('data-testid') || latest.id || '')
+              : '';
+            lastText = '';
+            stableCount = 0;
+          };
           let lastText = '';
           let stableTicks = 0;
 
@@ -1546,7 +1706,7 @@ private enum ExternalAIBrowserScripts {
               return;
             }
 
-            if (items.length <= baselineCount) {
+            if (items.length === 0) {
               window.webkit.messageHandlers.starManagerBridge.postMessage({
                 text: '',
                 stable: false,
@@ -1558,6 +1718,19 @@ private enum ExternalAIBrowserScripts {
             }
             const latest = items[items.length - 1];
             const text = extractAnswerText(latest);
+            const latestKey = latest.getAttribute('data-message-id') || latest.getAttribute('data-testid') || latest.id || '';
+            const hasNewAnswer = items.length > baselineCount ||
+              (text.length > 0 && (text !== baselineText || (latestKey.length > 0 && latestKey !== baselineKey)));
+            if (!hasNewAnswer) {
+              window.webkit.messageHandlers.starManagerBridge.postMessage({
+                text: '',
+                stable: false,
+                generating: generating,
+                interaction: interaction,
+                error: ''
+              });
+              return;
+            }
             if (text.length > 0 && text === lastText && !generating) {
               stableTicks += 1;
             } else {
@@ -1725,6 +1898,10 @@ private enum ExternalAIBrowserScripts {
                     "iframe[src*='turnstile']"
                 ],
                 fileInput: [
+                    "input[type='file'][accept*='image']",
+                    "input[type='file'][accept*='.jpg']",
+                    "input[type='file'][accept*='.jpeg']",
+                    "input[type='file'][accept*='.png']",
                     "input[type='file']"
                 ],
                 attachTrigger: [
@@ -1737,6 +1914,9 @@ private enum ExternalAIBrowserScripts {
                 attachmentConfirmed: [
                     "div[data-testid*='attachment']",
                     "img[alt='Uploaded image']",
+                    "button[aria-label*='uploaded image' i]",
+                    "button[aria-label*='업로드한 이미지']",
+                    "img[src*='/backend-api/estuary/content']",
                     "div[class*='attachment-tile']"
                 ]
             )
@@ -1764,10 +1944,7 @@ private enum ExternalAIBrowserScripts {
                 generating: [
                     "button[aria-label*='Stop']",
                     "button[aria-label*='중지']",
-                    "button.stop-generating-button",
-                    "mat-progress-spinner",
-                    ".loading-indicator",
-                    "div.sparkle-loading"
+                    "button.stop-generating-button"
                 ],
                 send: [
                     "button.send-button",
@@ -1803,11 +1980,17 @@ private enum ExternalAIBrowserScripts {
                     "#challenge-stage"
                 ],
                 fileInput: [
+                    "input[type='file'][accept*='image']",
+                    "input[type='file'][accept*='.jpg']",
+                    "input[type='file'][accept*='.jpeg']",
+                    "input[type='file'][accept*='.png']",
                     "input[type='file']"
                 ],
                 attachTrigger: [
                     "button[aria-label*='Add files']",
                     "button[aria-label*='Upload']",
+                    "button[aria-label*='업로드 및 도구']",
+                    "gem-icon-button[arialabel*='업로드']",
                     "button[aria-label*='이미지']",
                     "button[aria-label*='사진']",
                     "button[aria-label*='파일 추가']"
@@ -1853,6 +2036,10 @@ private enum ExternalAIBrowserScripts {
                     "iframe[src*='challenges']"
                 ],
                 fileInput: [
+                    "input[type='file'][accept*='image']",
+                    "input[type='file'][accept*='.jpg']",
+                    "input[type='file'][accept*='.jpeg']",
+                    "input[type='file'][accept*='.png']",
                     "input[type='file']"
                 ],
                 attachTrigger: [
@@ -1872,6 +2059,8 @@ private enum ExternalAIBrowserScripts {
                     "div[contenteditable='true']"
                 ],
                 assistant: [
+                    ".font-claude-response .standard-markdown",
+                    "[data-testid='transcript-row'] [data-is-streaming] .standard-markdown",
                     "[data-is-streaming] .font-claude-response-body",
                     ".font-claude-response-body",
                     "div.font-claude-message",
@@ -1915,6 +2104,10 @@ private enum ExternalAIBrowserScripts {
                     "iframe[src*='turnstile']"
                 ],
                 fileInput: [
+                    "input[type='file'][accept*='image']",
+                    "input[type='file'][accept*='.jpg']",
+                    "input[type='file'][accept*='.jpeg']",
+                    "input[type='file'][accept*='.png']",
                     "input[type='file']"
                 ],
                 attachTrigger: [

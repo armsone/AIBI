@@ -25,7 +25,15 @@ object ExternalAIScripts {
         return """
             (async function() {
                 try {
-                    var fileInputSelectors = ['input[type="file"]'];
+                    // Prefer an image-only input. Gemini exposes a document input first;
+                    // assigning an image to that node is ignored by its uploader.
+                    var fileInputSelectors = [
+                        'input[type="file"][accept*="image"]',
+                        'input[type="file"][accept*=".jpg"]',
+                        'input[type="file"][accept*=".jpeg"]',
+                        'input[type="file"][accept*=".png"]',
+                        'input[type="file"]'
+                    ];
                     var triggerSelectors = ${config.attachTrigger};
                     var dataUrl = $dataUrlLiteral;
                     var mime = $mimeLiteral;
@@ -46,7 +54,7 @@ object ExternalAIScripts {
                         var trigger = queryFirst(triggerSelectors);
                         if (trigger) {
                             trigger.click();
-                            await new Promise(function(r) { setTimeout(r, 400); });
+                            await new Promise(function(r) { setTimeout(r, 700); });
                             input = queryFirst(fileInputSelectors);
                         }
                     }
@@ -55,8 +63,16 @@ object ExternalAIScripts {
                         return JSON.stringify({ success: false, error: 'FILE_INPUT_NOT_FOUND' });
                     }
 
-                    var res = await fetch(dataUrl);
-                    var blob = await res.blob();
+                    // Some providers (notably ChatGPT) wrap window.fetch and reject data: URLs.
+                    // Decode the data URL directly so attachment creation stays provider-neutral.
+                    var comma = dataUrl.indexOf(',');
+                    if (comma < 0) throw new Error('INVALID_DATA_URL');
+                    var header = dataUrl.slice(0, comma);
+                    var payload = dataUrl.slice(comma + 1);
+                    var binary = /;base64/i.test(header) ? atob(payload) : decodeURIComponent(payload);
+                    var bytes = new Uint8Array(binary.length);
+                    for (var b = 0; b < binary.length; b++) bytes[b] = binary.charCodeAt(b);
+                    var blob = new Blob([bytes], { type: mime });
                     var file = new File([blob], filename, { type: mime, lastModified: Date.now() });
 
                     var dt = new DataTransfer();
@@ -1235,6 +1251,8 @@ object ExternalAIScripts {
                     listOf(
                         "button[aria-label*='Add files']",
                         "button[aria-label*='Upload']",
+                        "button[aria-label*='업로드 및 도구']",
+                        "gem-icon-button[arialabel*='업로드']",
                         "button[aria-label*='이미지']",
                         "button[aria-label*='사진']",
                         "button[aria-label*='파일 추가']"
@@ -1337,6 +1355,9 @@ object ExternalAIScripts {
                     listOf(
                         "div[data-testid*='attachment']",
                         "img[alt='Uploaded image']",
+                        "button[aria-label*='uploaded image' i]",
+                        "button[aria-label*='업로드한 이미지']",
+                        "img[src*='/backend-api/estuary/content']",
                         "div[class*='attachment-tile']"
                     )
                 )

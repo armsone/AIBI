@@ -3,6 +3,7 @@ package com.armsone.starmanager.ui.externalai
 import android.annotation.SuppressLint
 import android.app.Activity
 import android.content.Context
+import android.content.ContextWrapper
 import android.view.Gravity
 import android.view.ViewGroup
 import android.webkit.CookieManager
@@ -48,7 +49,7 @@ object ExternalAIAuthStatus {
         provider: DirectAIProvider
     ): ExternalAIAuthState = suspendCancellableCoroutine { continuation ->
         val webView = WebView(context)
-        val hostView = (context as? Activity)?.window?.decorView as? ViewGroup
+        val hostView = context.findActivity()?.window?.decorView as? ViewGroup
         val hasCompleted = AtomicBoolean(false)
 
         // WKWebView 기준 구현과 같이 실제 레이아웃 크기를 가진 채 화면 밖에 붙인다.
@@ -191,4 +192,10 @@ object ExternalAIAuthStatus {
             complete(ExternalAIAuthState.CHECKING)
         }
     }
+}
+
+private tailrec fun Context.findActivity(): Activity? = when (this) {
+    is Activity -> this
+    is ContextWrapper -> baseContext.findActivity()
+    else -> null
 }
