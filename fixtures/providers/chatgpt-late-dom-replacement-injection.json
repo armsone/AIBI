@@ -1,0 +1,22 @@
+{
+  "provider": "chatgpt",
+  "platform": "apple-hidden-webview",
+  "sanitized": true,
+  "containsPrivateContent": false,
+  "trigger": "six-photo-attachment-batch-committed",
+  "observedBehavior": "composer_dom_node_replaced_after_attachment_preview_settle",
+  "quirk": "lateDomReplacement",
+  "hiddenDeviceTrace": [
+    { "attempt": 1, "injectSucceeded": true, "injectCode": null, "verifiedMatch": false, "expectedAction": "retry_hidden" },
+    { "attempt": 2, "injectSucceeded": false, "injectCode": "INPUT_NOT_FOUND", "verifiedMatch": false, "expectedAction": "retry_hidden" },
+    { "attempt": 3, "injectSucceeded": true, "injectCode": null, "verifiedMatch": true, "expectedAction": "proceed_to_submit" }
+  ],
+  "existingDifferentTextTrace": {
+    "injectSucceeded": false,
+    "injectCode": "EXISTING_TEXT_PRESERVED",
+    "verifiedMatch": false,
+    "expectedAction": "stop_immediately_no_retry_no_overwrite"
+  },
+  "forbiddenOutcome": "fail_on_first_transient_miss_or_unverified_success",
+  "expectedRetryBound": 4
+}

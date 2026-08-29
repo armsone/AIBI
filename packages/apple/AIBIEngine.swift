@@ -206,6 +206,11 @@ public struct AIBITimingProfile {
     public var maxReadinessMisses: Int = 12 // ~8.4s of consecutive misses
     public var attachmentTimeout: TimeInterval = 30.0
     public var attachmentCadence: TimeInterval = 0.35
+    /// Some providers (e.g. ChatGPT) replace the composer DOM node right after attachment
+    /// insertion or hydration. Bound the relocate/retry loop instead of failing on the first
+    /// transient miss or on a verified-mismatched injection.
+    public var promptInjectionRetryLimit: Int = 4
+    public var promptInjectionRetryDelay: TimeInterval = 0.6
     public var submitTimeout: TimeInterval = 15.0
     public var submitCadence: TimeInterval = 0.5
     public var submitVerificationDelay: TimeInterval = 0.7
@@ -498,24 +503,51 @@ public final class AIBISession: NSObject, ObservableObject {
             }
         }
 
-        // Inject prompt
+        // Inject prompt, boundedly retrying transient misses caused by a provider replacing the
+        // composer DOM node after attachments or hydration (see quirks.lateDomReplacement).
         let escapedPrompt = escapeJsString(task.promptText)
         let injectScript = "window.__AIBI_RUNTIME__.injectPrompt(\(configJson(config)), '\(escapedPrompt)', \(task.forceFill))"
+        let verifyScript = "window.__AIBI_RUNTIME__.verifyPromptInjected(\(configJson(config)), '\(escapedPrompt)')"
 
-        do {
-            let injectResult = try await evaluateScript(injectScript, on: webView)
+        var attempt = 0
+        while attempt < timingProfile.promptInjectionRetryLimit {
+            attempt += 1
             guard generationId == generation else { return }
-            guard let json = parseJson(injectResult),
-                  let success = json["success"] as? Bool, success else {
+
+            guard let injectResult = try? await evaluateScript(injectScript, on: webView) else {
+                try? await Task.sleep(nanoseconds: UInt64(timingProfile.promptInjectionRetryDelay * 1_000_000_000))
+                continue
+            }
+            guard generationId == generation else { return }
+
+            let injectJson = parseJson(injectResult)
+            let injectSucceeded = injectJson?["success"] as? Bool ?? false
+            let injectCode = injectJson?["code"] as? String
+
+            // A different, non-empty user prompt is a terminal state: never overwrite it without
+            // an explicit force retry, and never blindly retry it either.
+            if injectCode == "EXISTING_TEXT_PRESERVED" {
                 escalateToVisible(reason: .inputMissing)
                 return
             }
 
-            // Begin submission loop
-            startSubmissionLoop(generation: generation)
-        } catch {
-            escalateToVisible(reason: .inputMissing)
+            if injectSucceeded {
+                // A JS exception's absence does not prove the text landed: ChatGPT can swap the
+                // composer node between injection and this verification call. Confirm the value.
+                if let verifyResult = try? await evaluateScript(verifyScript, on: webView),
+                   let verifyJson = parseJson(verifyResult),
+                   let verifyData = verifyJson["data"] as? [String: Any],
+                   verifyData["matches"] as? Bool == true {
+                    startSubmissionLoop(generation: generation)
+                    return
+                }
+            }
+
+            try? await Task.sleep(nanoseconds: UInt64(timingProfile.promptInjectionRetryDelay * 1_000_000_000))
         }
+
+        guard generationId == generation else { return }
+        escalateToVisible(reason: .inputMissing)
     }
 
     private func attachImagesAtomically(

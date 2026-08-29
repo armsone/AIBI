@@ -121,6 +121,43 @@ class MediaContractTests(unittest.TestCase):
             check=True,
         )
 
+    def test_runtime_retries_late_dom_replacement_and_preserves_existing_text(self):
+        subprocess.run(
+            ["node", str(ROOT / "tests/runtime_prompt_injection_test.js")],
+            cwd=ROOT,
+            check=True,
+        )
+
+    def test_chatgpt_late_dom_replacement_fixture_matches_bounded_retry_contract(self):
+        fixture = json.loads(
+            (ROOT / "fixtures/providers/chatgpt-late-dom-replacement-injection.json").read_text()
+        )
+        self.assertTrue(fixture["sanitized"])
+        self.assertFalse(fixture["containsPrivateContent"])
+        self.assertEqual(fixture["quirk"], "lateDomReplacement")
+
+        trace = fixture["hiddenDeviceTrace"]
+        self.assertLessEqual(len(trace), fixture["expectedRetryBound"])
+        # Every attempt but the last is a transient miss or an unverified "success" that must
+        # be retried, never treated as terminal.
+        for attempt in trace[:-1]:
+            self.assertEqual(attempt["expectedAction"], "retry_hidden")
+            self.assertFalse(attempt["injectSucceeded"] and attempt["verifiedMatch"])
+        self.assertEqual(trace[-1]["expectedAction"], "proceed_to_submit")
+        self.assertTrue(trace[-1]["injectSucceeded"] and trace[-1]["verifiedMatch"])
+
+        existing_text = fixture["existingDifferentTextTrace"]
+        self.assertEqual(existing_text["injectCode"], "EXISTING_TEXT_PRESERVED")
+        self.assertEqual(existing_text["expectedAction"], "stop_immediately_no_retry_no_overwrite")
+
+    def test_apple_engine_verifies_injection_before_trusting_success(self):
+        engine = (ROOT / "packages/apple/AIBIEngine.swift").read_text()
+        self.assertIn("promptInjectionRetryLimit", engine)
+        self.assertIn("verifyPromptInjected", engine)
+        self.assertIn("EXISTING_TEXT_PRESERVED", engine)
+        runtime = (ROOT / "packages/runtime/aibi-browser-runtime.js").read_text()
+        self.assertIn("RUNTIME.verifyPromptInjected", runtime)
+
     def test_platform_pipelines_share_limits_and_ordered_names(self):
         android = (ROOT / "packages/android/AIBIMediaPipeline.kt").read_text()
         apple = (ROOT / "packages/apple/AIBIMediaPipeline.swift").read_text()
