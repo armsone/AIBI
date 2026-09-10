@@ -1,5 +1,7 @@
 # AIBI 0.5.0 five-project release checkpoint
 
+Superseded by [20260910-release-result.md](20260910-release-result.md): Xcode and web login recovered; both Apple builds uploaded and submitted to Public Beta review; both Android releases and Hanstree.com published. Do not repeat the old resume steps below.
+
 Status at 2026-09-10 20:35 KST: source ports, independent source review, four app Release builds and Git backups completed. After the representative signed into Xcode, the existing Stargram archive uploaded successfully at 20:32:23 KST (EXPORT SUCCEEDED, exit 0). The separate App Store Connect browser session still shows its login form, so TestFlight processing, group linkage and review remain unverified. Sequential public release is at the second project. This is not a five-project release-complete report.
 
 | Order | Project | Version | Current result |
