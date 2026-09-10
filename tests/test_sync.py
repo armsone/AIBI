@@ -34,15 +34,15 @@ class SyncSafetyTests(unittest.TestCase):
                 aibi_sync.inside(Path(directory), "../outside", "test")
 
     def test_repository_root_accepts_workspace_sibling(self):
-        expected = aibi_sync.PROJECT_ROOT.parent / "StarManager"
-        self.assertEqual(aibi_sync.repository_root("../StarManager"), expected.resolve())
+        expected = aibi_sync.PROJECT_ROOT.parent / "iManager"
+        self.assertEqual(aibi_sync.repository_root("../iManager"), expected.resolve())
 
     def test_repository_root_rejects_workspace_root(self):
         with self.assertRaises(aibi_sync.SyncError):
             aibi_sync.repository_root("..")
 
     def test_all_discovers_registered_consumers(self):
-        self.assertIn("starmanager", aibi_sync.consumer_names("all"))
+        self.assertIn("imanager", aibi_sync.consumer_names("all"))
 
 
 if __name__ == "__main__":

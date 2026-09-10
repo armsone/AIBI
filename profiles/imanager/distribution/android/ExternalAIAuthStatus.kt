@@ -1,4 +1,4 @@
-package com.armsone.starmanager.ui.externalai
+package com.armsone.imanagerai.ui.externalai
 
 import android.annotation.SuppressLint
 import android.app.Activity
@@ -14,7 +14,7 @@ import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.webkit.WebStorage
 import android.widget.FrameLayout
-import com.armsone.starmanager.service.DirectAIProvider
+import com.armsone.imanagerai.service.DirectAIProvider
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext

@@ -1,0 +1,22 @@
+schema_version: 1
+group: aibi-consumers
+scope: AIBI 0.5.0 submission and private diagnostics; not whole-product parity
+members:
+  - /Users/armsone/git/AIBI
+  - /Users/armsone/git/Stargram
+  - /Users/armsone/git/Stargram-Android
+  - /Users/armsone/git/DenimDex-iOS
+  - /Users/armsone/git/DenimDex-Android
+capabilities:
+  - single send dispatch followed by observation only
+  - current composer attachment count checked immediately before dispatch
+  - empty composer is pending rather than generation success
+  - cancellation prevents later upload or send side effects
+  - private backup-excluded recent 10 runs and at most 400 allowlisted numeric events
+  - user-initiated sanitized JSON sharing from settings
+host_adaptations:
+  Stargram: composer bottom clearance for floating actions
+  DenimDex: preserve value-analysis result validation and archive behavior
+preserved_open_items:
+  - Full product and rendered parity outside this scoped update is not re-certified.
+  - Provider runtime success must be demonstrated separately for each app and device.

@@ -1,4 +1,4 @@
-package com.armsone.starmanager.ui.externalai
+package com.armsone.imanagerai.ui.externalai
 
 /**
  * 백그라운드 브라우저 자동화 도중 사용자 개입(폴백) 필요성을 판별하는 분류기.

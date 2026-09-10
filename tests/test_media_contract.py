@@ -176,9 +176,9 @@ class MediaContractTests(unittest.TestCase):
         self.assertIn("task.attachments.size > 20", android)
         self.assertNotIn("task.attachments.size > 8", android)
 
-    def test_starmanager_ios_distribution_uses_selected_count_up_to_eight(self):
-        runtime = (ROOT / "profiles/starmanager/distribution/ios/ExternalAIBrowserView.swift").read_text()
-        pipeline = (ROOT / "profiles/starmanager/distribution/ios/AIBIMediaPipeline.swift").read_text()
+    def test_imanager_ios_distribution_uses_selected_count_up_to_eight(self):
+        runtime = (ROOT / "profiles/imanager/distribution/ios/ExternalAIBrowserView.swift").read_text()
+        pipeline = (ROOT / "profiles/imanager/distribution/ios/AIBIMediaPipeline.swift").read_text()
         self.assertIn("var attachments: [AIBIMediaAttachment] = []", runtime)
         self.assertIn("(1...8).contains(attachments.count)", runtime)
         self.assertIn("window.__starManagerBeginAttachmentBatch", runtime)
@@ -187,10 +187,10 @@ class MediaContractTests(unittest.TestCase):
         self.assertIn("maximumImageCount: Int = 8", pipeline)
         self.assertIn("aibi-%02d.jpg", pipeline)
 
-    def test_starmanager_android_distribution_uses_bounded_atomic_batch(self):
-        runtime = (ROOT / "profiles/starmanager/distribution/android/ExternalAIScripts.kt").read_text()
-        pipeline = (ROOT / "profiles/starmanager/distribution/android/ExternalAIMediaPipeline.kt").read_text()
-        models = (ROOT / "profiles/starmanager/distribution/android/ExternalAIModels.kt").read_text()
+    def test_imanager_android_distribution_uses_bounded_atomic_batch(self):
+        runtime = (ROOT / "profiles/imanager/distribution/android/ExternalAIScripts.kt").read_text()
+        pipeline = (ROOT / "profiles/imanager/distribution/android/ExternalAIMediaPipeline.kt").read_text()
+        models = (ROOT / "profiles/imanager/distribution/android/ExternalAIModels.kt").read_text()
         self.assertIn("prepareAttachmentInputScript", runtime)
         self.assertIn("beginAttachmentBatchScript", runtime)
         self.assertIn("appendAttachmentToBatchScript", runtime)
@@ -207,7 +207,7 @@ class MediaContractTests(unittest.TestCase):
         self.assertIn("provider == DirectAIProvider.OPEN_AI", runtime)
         self.assertNotIn('"button[data-test-id*=\'upload-file\']"', runtime)
         self.assertIn("button[aria-label='첨부파일 닫기']", runtime)
-        bridge = (ROOT / "profiles/starmanager/distribution/android/ExternalAINativeFileBridge.kt").read_text()
+        bridge = (ROOT / "profiles/imanager/distribution/android/ExternalAINativeFileBridge.kt").read_text()
         self.assertIn("callback.onReceiveValue(arrayOf(next))", bridge)
         self.assertIn("nextSingleIndex += 1", bridge)
         self.assertIn("MODE_OPEN_MULTIPLE", bridge)

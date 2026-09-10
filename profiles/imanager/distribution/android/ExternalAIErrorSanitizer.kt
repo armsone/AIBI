@@ -1,6 +1,6 @@
-package com.armsone.starmanager.ui.externalai
+package com.armsone.imanagerai.ui.externalai
 
-import com.armsone.starmanager.service.DirectAIProvider
+import com.armsone.imanagerai.service.DirectAIProvider
 
 /**
  * 외부 AI 웹 표면에서 감지된 사이트 오류 메시지를 정제하는 유틸리티 (iPhone sanitizeErrorMessage 1:1 일치).

@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 1,
+  "consumer": "denimdex",
+  "repositories": [
+    {
+      "id": "denimdex-ios",
+      "root": "../DenimDex-iOS",
+      "lockFile": ".aibi-lock.json",
+      "verification": "xcodebuild -project DenimDex.xcodeproj -scheme DenimDex -configuration Release -destination 'generic/platform=iOS' build",
+      "files": [
+        {"source": "packages/runtime/aibi-browser-runtime.js", "destination": "DenimDex/AIBI/Resources/aibi-browser-runtime.js", "scope": "provider-runtime"},
+        {"source": "packages/providers/aibi-providers.json", "destination": "DenimDex/AIBI/Resources/aibi-providers.json", "scope": "provider-configuration"},
+        {"source": "profiles/denimdex/distribution/apple/AIBISession.swift", "destination": "DenimDex/AIBI/AIBISession.swift", "scope": "host-adapted-runtime"},
+        {"source": "profiles/denimdex/distribution/apple/AIBIModels.swift", "destination": "DenimDex/AIBI/AIBIModels.swift", "scope": "host-adapted-models"},
+        {"source": "profiles/denimdex/distribution/apple/AIBIDiagnosticsStore.swift", "destination": "DenimDex/AIBI/AIBIDiagnosticsStore.swift", "scope": "privacy-safe-diagnostics"}
+      ]
+    },
+    {
+      "id": "denimdex-android",
+      "root": "../DenimDex-Android",
+      "lockFile": ".aibi-lock.json",
+      "verification": "./gradlew assembleRelease",
+      "files": [
+        {"source": "packages/runtime/aibi-browser-runtime.js", "destination": "app/src/main/assets/aibi-browser-runtime.js", "scope": "provider-runtime"},
+        {"source": "packages/providers/aibi-providers.json", "destination": "app/src/main/assets/aibi-providers.json", "scope": "provider-configuration"},
+        {"source": "profiles/denimdex/distribution/android/AIBIEngine.kt", "destination": "app/src/main/java/com/armsone/denimdex/core/aibi/AIBIEngine.kt", "scope": "host-adapted-runtime"},
+        {"source": "profiles/denimdex/distribution/android/AIBIDiagnosticsStore.kt", "destination": "app/src/main/java/com/armsone/denimdex/core/aibi/AIBIDiagnosticsStore.kt", "scope": "privacy-safe-diagnostics"}
+      ]
+    }
+  ]
+}

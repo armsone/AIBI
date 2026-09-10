@@ -1,0 +1,92 @@
+{
+  "schemaVersion": 1,
+  "consumer": "imanager",
+  "repositories": [
+    {
+      "id": "imanager-ios",
+      "root": "../Stargram",
+      "lockFile": ".aibi-lock.json",
+      "verification": "xcodebuild -project iManagerAI.xcodeproj -scheme iManagerAI -destination 'generic/platform=iOS' -configuration Release build",
+      "files": [
+        {
+          "source": "profiles/imanager/distribution/ios/AIBIMediaPipeline.swift",
+          "destination": "iManagerAI/Features/Composer/AIBIMediaPipeline.swift",
+          "scope": "apple-media-adapter"
+        },
+        {
+          "source": "profiles/imanager/distribution/ios/ExternalAIBrowserView.swift",
+          "destination": "iManagerAI/Features/Composer/ExternalAIBrowserView.swift",
+          "scope": "host-adapted-runtime"
+        },
+        {
+          "source": "profiles/imanager/distribution/ios/AIBIDiagnosticsStore.swift",
+          "destination": "iManagerAI/Services/AIBIDiagnosticsStore.swift",
+          "scope": "privacy-safe-diagnostics"
+        }
+      ]
+    },
+    {
+      "id": "imanager-android",
+      "root": "../Stargram-Android",
+      "lockFile": ".aibi-lock.json",
+      "verification": "./gradlew assembleRelease",
+      "files": [
+        {
+          "source": "profiles/imanager/distribution/android/ExternalAINativeFileBridge.kt",
+          "destination": "app/src/main/java/com/armsone/imanagerai/ui/externalai/ExternalAINativeFileBridge.kt",
+          "scope": "android-media-adapter"
+        },
+        {
+          "source": "profiles/imanager/distribution/android/ExternalAIMediaPipeline.kt",
+          "destination": "app/src/main/java/com/armsone/imanagerai/ui/externalai/ExternalAIMediaPipeline.kt",
+          "scope": "android-media-adapter"
+        },
+        {
+          "source": "profiles/imanager/distribution/android/ExternalAIModels.kt",
+          "destination": "app/src/main/java/com/armsone/imanagerai/ui/externalai/ExternalAIModels.kt",
+          "scope": "portable-core"
+        },
+        {
+          "source": "profiles/imanager/distribution/android/ExternalAIScripts.kt",
+          "destination": "app/src/main/java/com/armsone/imanagerai/ui/externalai/ExternalAIScripts.kt",
+          "scope": "provider-runtime"
+        },
+        {
+          "source": "profiles/imanager/distribution/android/ExternalAISecurityPolicy.kt",
+          "destination": "app/src/main/java/com/armsone/imanagerai/ui/externalai/ExternalAISecurityPolicy.kt",
+          "scope": "portable-security"
+        },
+        {
+          "source": "profiles/imanager/distribution/android/ExternalAIAnswerCleaner.kt",
+          "destination": "app/src/main/java/com/armsone/imanagerai/ui/externalai/ExternalAIAnswerCleaner.kt",
+          "scope": "host-adapted-cleaner"
+        },
+        {
+          "source": "profiles/imanager/distribution/android/ExternalAIErrorSanitizer.kt",
+          "destination": "app/src/main/java/com/armsone/imanagerai/ui/externalai/ExternalAIErrorSanitizer.kt",
+          "scope": "portable-security"
+        },
+        {
+          "source": "profiles/imanager/distribution/android/ExternalAIFallbackClassifier.kt",
+          "destination": "app/src/main/java/com/armsone/imanagerai/ui/externalai/ExternalAIFallbackClassifier.kt",
+          "scope": "portable-core"
+        },
+        {
+          "source": "profiles/imanager/distribution/android/ExternalAITimerFormatter.kt",
+          "destination": "app/src/main/java/com/armsone/imanagerai/ui/externalai/ExternalAITimerFormatter.kt",
+          "scope": "host-adapted-presentation"
+        },
+        {
+          "source": "profiles/imanager/distribution/android/ExternalAIAuthStatus.kt",
+          "destination": "app/src/main/java/com/armsone/imanagerai/ui/externalai/ExternalAIAuthStatus.kt",
+          "scope": "android-platform-adapter"
+        },
+        {
+          "source": "profiles/imanager/distribution/android/ExternalAIDiagnosticsStore.kt",
+          "destination": "app/src/main/java/com/armsone/imanagerai/ui/externalai/ExternalAIDiagnosticsStore.kt",
+          "scope": "privacy-safe-diagnostics"
+        }
+      ]
+    }
+  ]
+}

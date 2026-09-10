@@ -1,4 +1,4 @@
-package com.armsone.starmanager.ui.externalai
+package com.armsone.imanagerai.ui.externalai
 
 import android.content.Context
 import android.net.Uri

@@ -212,7 +212,7 @@ def consumer_names(requested: str) -> list[str]:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("command", choices=("status", "check", "apply"))
-    parser.add_argument("consumer", help="consumer name, for example starmanager, or all")
+    parser.add_argument("consumer", help="consumer name, for example imanager, or all")
     arguments = parser.parse_args()
     try:
         names = consumer_names(arguments.consumer)

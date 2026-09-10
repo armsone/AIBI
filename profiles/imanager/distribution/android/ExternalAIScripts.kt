@@ -1,6 +1,6 @@
-package com.armsone.starmanager.ui.externalai
+package com.armsone.imanagerai.ui.externalai
 
-import com.armsone.starmanager.service.DirectAIProvider
+import com.armsone.imanagerai.service.DirectAIProvider
 import com.google.gson.Gson
 import com.google.gson.JsonElement
 import com.google.gson.JsonObject
@@ -13,6 +13,118 @@ object ExternalAIScripts {
 
     private val gson = Gson()
 
+    private fun submissionHelpers(provider: DirectAIProvider): String {
+        val config = providerSelectors(provider)
+        return """
+            function visible(el) {
+                if (!el) return false;
+                var r=el.getBoundingClientRect(), s=getComputedStyle(el);
+                return r.width>0 && r.height>0 && s.display!=='none' && s.visibility!=='hidden' && s.opacity!=='0';
+            }
+            function firstVisible(selectors, root) {
+                for (var i=0;i<selectors.length;i++) {
+                    var all=(root||document).querySelectorAll(selectors[i]);
+                    for(var j=0;j<all.length;j++) if(visible(all[j])) return all[j];
+                } return null;
+            }
+            var input=firstVisible(${config.input});
+            var composer=input && (input.closest('form') || input.closest('[data-testid="composer"]') || input.closest('[class*="composer"]'));
+            function attachmentCount() {
+                if(!composer) return 0;
+                var selectors=${config.attachmentConfirmed}, maximum=0;
+                for(var i=0;i<selectors.length;i++) {
+                    var nodes=composer.querySelectorAll(selectors[i]);
+                    maximum=Math.max(maximum,Array.from(nodes).filter(visible).length);
+                } return maximum;
+            }
+            function sendButton() {
+                if(!composer || window.__sm_cancelled || window.__sm_submit_dispatched) return null;
+                var expected=window.__sm_expected_attachments||0;
+                if(expected>0 && attachmentCount()!==expected) return null;
+                var selectors=${config.send};
+                for(var i=0;i<selectors.length;i++) {
+                    var nodes=composer.querySelectorAll(selectors[i]);
+                    for(var j=0;j<nodes.length;j++) {
+                        var b=nodes[j], label=[b.getAttribute('aria-label'),b.getAttribute('title'),b.getAttribute('data-testid'),b.textContent].join(' ');
+                        if(/stop|중지|정지|voice|음성|dictat|받아쓰기/i.test(label)) continue;
+                        if(!/send|submit|보내기|전송|제출/i.test(label)) continue;
+                        if(visible(b)&&!b.disabled&&b.getAttribute('aria-disabled')!=='true') return b;
+                    }
+                } return null;
+            }
+        """.trimIndent()
+    }
+
+    /** Call once on a fresh task; never reset dispatch for a retry of the same task. */
+    fun beginTaskScript(expectedCount: Int = 0): String = """
+        (function(){window.__sm_submit_dispatched=false;window.__sm_cancelled=false;
+        window.__sm_expected_attachments=${expectedCount.coerceIn(0, 20)};return true;})();
+    """.trimIndent()
+
+    fun cancelTaskScript(): String = "window.__sm_cancelled=true;"
+
+    fun submissionStateScript(): String = "JSON.stringify({dispatched:window.__sm_submit_dispatched===true,cancelled:window.__sm_cancelled===true})"
+
+    /** Installs once per page. Only fixed event names and bounded numbers enter the queue. */
+    fun installDiagnosticsScript(): String = """
+        (function(){
+            if(window.__sm_diag_installed)return true;
+            window.__sm_diag_installed=true;window.__sm_diag_queue=[];
+            var sequence=0;
+            function emit(stage,metrics){
+                if(window.__sm_diag_queue.length<400)window.__sm_diag_queue.push({stage:stage,metrics:metrics});
+            }
+            var original=window.fetch;
+            window.fetch=function(){
+                var args=arguments,kind=0,id=0,images=0,hasMessages=0;
+                try{
+                    var address=typeof args[0]==='string'?args[0]:(args[0]&&args[0].url);
+                    var path=new URL(address,location.href).pathname;
+                    if(/\/files?(\/|${'$'})/.test(path))kind=1;
+                    else if(/\/conversation(\/|${'$'})/.test(path))kind=2;
+                    if(kind&&sequence<1000){
+                        id=++sequence;
+                        var body=args[1]&&args[1].body;
+                        if(typeof body==='string'&&body.length<=1000000){
+                            var parsed=JSON.parse(body),messages=parsed&&parsed.messages;
+                            if(Array.isArray(messages)){
+                                hasMessages=1;
+                                messages.slice(0,100).forEach(function(m){
+                                    var parts=m&&m.content&&m.content.parts;
+                                    if(Array.isArray(parts))parts.slice(0,100).forEach(function(p){
+                                        if(p&&typeof p==='object'&&/^(image_asset_pointer|image_url|input_image)${'$'}/.test(p.content_type||p.type||''))images=Math.min(100,images+1);
+                                    });
+                                });
+                            }
+                        }
+                    }
+                }catch(_){}
+                if(id)emit('request_started',{request_id:id,request_kind:kind,image_count:images,request_has_messages:hasMessages});
+                // Return the original promise and leave response streams untouched.
+                var result=original.apply(this,args);
+                if(id)result.then(function(r){emit('request_response',{request_id:id,request_kind:kind,http_status:Math.max(0,Math.min(599,r.status||0))});},function(e){emit('request_failed',{request_id:id,request_kind:kind,failure_kind:e&&e.name==='AbortError'?1:e&&e.name==='TypeError'?2:3});});
+                return result;
+            };
+            return true;
+        })();
+    """.trimIndent()
+
+    fun drainDiagnosticsScript(provider: DirectAIProvider): String = """
+        (function(){${submissionHelpers(provider)}
+        var events=window.__sm_diag_queue||[];window.__sm_diag_queue=[];
+        events=events.slice(0,399);
+        events.push({stage:'bridge_snapshot',metrics:{composer_present:composer?1:0,attached_count:Math.min(100,attachmentCount()),attempt:window.__sm_submit_dispatched?1:0}});
+        return JSON.stringify(events);})();
+    """.trimIndent()
+
+    /** Revalidates attachments and atomically reserves the single native dispatch. */
+    fun claimNativeSubmissionScript(provider: DirectAIProvider, expectedCount: Int = 0): String = """
+        (function(){window.__sm_expected_attachments=${expectedCount.coerceIn(0,20)};${submissionHelpers(provider)}
+        var b=sendButton();if(!b)return JSON.stringify({found:false});
+        var r=b.getBoundingClientRect();window.__sm_submit_dispatched=true;
+        return JSON.stringify({found:true,x:(r.left+r.width/2)/innerWidth,y:(r.top+r.height/2)/innerHeight});})();
+    """.trimIndent()
+
     /** 프롬프트 문자열을 JavaScript 안전한 문자열 리터럴로 인코딩 */
     fun jsStringLiteral(value: String): String = gson.toJson(value)
 
@@ -23,6 +135,7 @@ object ExternalAIScripts {
             provider == DirectAIProvider.OPEN_AI
         return """
             (function() {
+                if(window.__sm_cancelled || window.__sm_submit_dispatched) return JSON.stringify({success:false,found:false,error:'TASK_NOT_WRITABLE'});
                 try {
                     var fileInputSelectors = [
                         'input[type="file"][accept*="image"]',
@@ -106,6 +219,7 @@ object ExternalAIScripts {
             provider == DirectAIProvider.OPEN_AI
         return """
             (function() {
+                if(window.__sm_cancelled || window.__sm_submit_dispatched) return JSON.stringify({success:false,found:false,error:'TASK_NOT_WRITABLE'});
                 try {
                     var selectors = [
                         'input[type="file"][accept*="image"]',
@@ -135,6 +249,7 @@ object ExternalAIScripts {
         providerSelectors(provider)
         return """
             (function() {
+                if(window.__sm_cancelled || window.__sm_submit_dispatched) return JSON.stringify({success:false,found:false,error:'TASK_NOT_WRITABLE'});
                 var selectors = [
                     'input[type="file"][accept*="image"]',
                     'input[type="file"][accept*=".jpg"]',
@@ -169,6 +284,7 @@ object ExternalAIScripts {
         val config = providerSelectors(provider)
         return """
             (function() {
+                if(window.__sm_cancelled || window.__sm_submit_dispatched) return JSON.stringify({success:false,found:false,error:'TASK_NOT_WRITABLE'});
                 var selectors = ${config.attachTrigger};
                 for (var i = 0; i < selectors.length; i++) {
                     try {
@@ -195,6 +311,7 @@ object ExternalAIScripts {
         val config = providerSelectors(provider)
         return """
             (function() {
+                if(window.__sm_cancelled || window.__sm_submit_dispatched) return JSON.stringify({success:false,found:false,error:'TASK_NOT_WRITABLE'});
                 var selectors = [
                     "[data-test-id='uploader-images-files-button-advanced'] button",
                     "images-files-uploader[data-test-id='uploader-images-files-button-advanced'] button"
@@ -232,6 +349,7 @@ object ExternalAIScripts {
 
     private fun visibleTargetScript(selectorsJson: String): String = """
         (function() {
+                if(window.__sm_cancelled || window.__sm_submit_dispatched) return JSON.stringify({success:false,found:false,error:'TASK_NOT_WRITABLE'});
             var selectors = $selectorsJson;
             for (var i = 0; i < selectors.length; i++) {
                 try {
@@ -253,6 +371,7 @@ object ExternalAIScripts {
 
     fun beginAttachmentBatchScript(expectedCount: Int): String = """
         (function() {
+                if(window.__sm_cancelled || window.__sm_submit_dispatched) return JSON.stringify({success:false,found:false,error:'TASK_NOT_WRITABLE'});
             var count = $expectedCount;
             if (!Number.isInteger(count) || count < 1 || count > 8) {
                 return JSON.stringify({ success: false, error: 'ATTACHMENT_LIMIT_EXCEEDED' });
@@ -270,6 +389,7 @@ object ExternalAIScripts {
         return """
             (function() {
                 try {
+                    if(window.__sm_cancelled || window.__sm_submit_dispatched) return JSON.stringify({success:false,error:'TASK_NOT_WRITABLE'});
                     var batch = window.__sm_attachment_batch;
                     if (!batch || batch.files.length >= batch.expectedCount) {
                         return JSON.stringify({ success: false, error: 'ATTACHMENT_BATCH_NOT_READY' });
@@ -302,6 +422,7 @@ object ExternalAIScripts {
         return """
             (function() {
                 try {
+                    if(window.__sm_cancelled || window.__sm_submit_dispatched) return JSON.stringify({success:false,error:'TASK_NOT_WRITABLE'});
                     var batch = window.__sm_attachment_batch;
                     if (!batch || batch.files.length !== batch.expectedCount) {
                         return JSON.stringify({ success: false, error: 'ATTACHMENT_BATCH_INCOMPLETE' });
@@ -340,36 +461,11 @@ object ExternalAIScripts {
     }
 
     /** 첨부 완료 여부를 한 선택자 계열의 정확한 미리보기 수로 확인한다. */
-    fun checkAttachmentConfirmedScript(provider: DirectAIProvider, expectedCount: Int = 1): String {
-        val config = providerSelectors(provider)
-        return """
-            (function() {
-                try {
-                    var selectors = ${config.attachmentConfirmed};
-                    function isVisible(el) {
-                        if (!el) return false;
-                        var style = window.getComputedStyle(el);
-                        if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') return false;
-                        return el.offsetWidth > 0 || el.offsetHeight > 0 || el.getClientRects().length > 0;
-                    }
-                    var maximumVisibleCount = 0;
-                    for (var i = 0; i < selectors.length; i++) {
-                        try {
-                            var els = document.querySelectorAll(selectors[i]);
-                            var visibleCount = 0;
-                            for (var j = 0; j < els.length; j++) {
-                                if (isVisible(els[j])) visibleCount += 1;
-                            }
-                            maximumVisibleCount = Math.max(maximumVisibleCount, visibleCount);
-                        } catch (_) {}
-                    }
-                    return JSON.stringify({ confirmed: maximumVisibleCount === $expectedCount, previewCount: maximumVisibleCount });
-                } catch (e) {
-                    return JSON.stringify({ confirmed: false, error: e.message || String(e) });
-                }
-            })();
-        """.trimIndent()
-    }
+    fun checkAttachmentConfirmedScript(provider: DirectAIProvider, expectedCount: Int = 1): String = """
+        (function(){${submissionHelpers(provider)}
+        var count=attachmentCount();
+        return JSON.stringify({confirmed:!window.__sm_cancelled&&!!composer&&count===${expectedCount.coerceIn(0,20)},previewCount:count});})();
+    """.trimIndent()
 
     /** 현재 어시스턴트 메시지 기준선(baseline)을 페이지 JS 전역 상태에 기록하는 스크립트 */
     fun recordBaselineScript(provider: DirectAIProvider): String {
@@ -523,6 +619,7 @@ object ExternalAIScripts {
             (function() {
                 try {
                     var inputSelectors = ${config.input};
+                    if(window.__sm_cancelled || window.__sm_submit_dispatched) return JSON.stringify({success:false,inputFound:false,submitted:false,error:'TASK_NOT_WRITABLE'});
                     var text = $encodedPrompt;
                     var force = $force;
 
@@ -626,129 +723,31 @@ object ExternalAIScripts {
     }
 
     /** 단계별 전송 에스컬레이션 스크립트 */
-    fun submitPromptScript(provider: DirectAIProvider, attemptNumber: Int): String {
-        val config = providerSelectors(provider)
-        return """
-            (function() {
-                try {
-                    var inputSelectors = ${config.input};
-                    var sendSelectors = ${config.send};
-                    var attempt = $attemptNumber;
+    @Suppress("UNUSED_PARAMETER")
+    fun submitPromptScript(provider: DirectAIProvider, attemptNumber: Int): String = """
+        (function(){
+            ${submissionHelpers(provider)}
+            var b=sendButton();
+            if(!b)return JSON.stringify({success:false,error:'SEND_NOT_READY'});
+            window.__sm_submit_dispatched=true;
+            b.click();
+            return JSON.stringify({success:true,modality:'BUTTON_CLICK',attempt:1});
+        })();
+    """.trimIndent()
 
-                    function queryFirst(selectors) {
-                        for (var i = 0; i < selectors.length; i++) {
-                            try {
-                                var el = document.querySelector(selectors[i]);
-                                if (el) return el;
-                            } catch (e) {}
-                        }
-                        return null;
-                    }
-
-                    function isVisible(el) {
-                        if (!el) return false;
-                        var style = window.getComputedStyle(el);
-                        if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') return false;
-                        return el.offsetWidth > 0 || el.offsetHeight > 0 || el.getClientRects().length > 0;
-                    }
-
-                    var input = queryFirst(inputSelectors);
-                    var btn = queryFirst(sendSelectors);
-
-                    if (input) input.focus();
-
-                    // 1단계: 버튼 직접 클릭
-                    if (attempt === 1) {
-                        if (btn && isVisible(btn) && !btn.disabled && btn.getAttribute('aria-disabled') !== 'true') {
-                            btn.focus();
-                            btn.click();
-                            return JSON.stringify({ success: true, modality: 'BUTTON_CLICK', attempt: 1 });
-                        }
-                    }
-
-                    // 2단계: 터치/포인터 및 마우스 이벤트 시퀀스
-                    if (attempt === 2) {
-                        if (btn && isVisible(btn)) {
-                            var rect = btn.getBoundingClientRect();
-                            var clientX = rect.left + rect.width / 2;
-                            var clientY = rect.top + rect.height / 2;
-                            var opts = { bubbles: true, cancelable: true, clientX: clientX, clientY: clientY, view: window };
-
-                            try { btn.dispatchEvent(new PointerEvent('pointerdown', opts)); } catch (_) {}
-                            try { btn.dispatchEvent(new MouseEvent('mousedown', opts)); } catch (_) {}
-                            try { btn.dispatchEvent(new PointerEvent('pointerup', opts)); } catch (_) {}
-                            try { btn.dispatchEvent(new MouseEvent('mouseup', opts)); } catch (_) {}
-                            btn.click();
-                            return JSON.stringify({ success: true, modality: 'POINTER_TOUCH_CLICK', attempt: 2 });
-                        }
-                    }
-
-                    // 3단계: 폼 requestSubmit / submit
-                    if (attempt === 3) {
-                        var form = (input && input.closest('form')) || (btn && btn.closest('form')) || document.querySelector('form');
-                        if (form) {
-                            if (typeof form.requestSubmit === 'function') {
-                                form.requestSubmit(btn || undefined);
-                            } else {
-                                form.submit();
-                            }
-                            return JSON.stringify({ success: true, modality: 'FORM_REQUEST_SUBMIT', attempt: 3 });
-                        }
-                    }
-
-                    // 4단계+: 엔터 키 이벤트 디스패치
-                    if (input) {
-                        input.focus();
-                        ['keydown', 'keypress', 'keyup'].forEach(function(type) {
-                            input.dispatchEvent(new KeyboardEvent(type, {
-                                key: 'Enter',
-                                code: 'Enter',
-                                keyCode: 13,
-                                which: 13,
-                                bubbles: true,
-                                cancelable: true,
-                                composed: true
-                            }));
-                        });
-                        return JSON.stringify({ success: true, modality: 'ENTER_KEY_EVENT', attempt: attempt });
-                    }
-
-                    return JSON.stringify({ success: false, error: 'NO_SUBMIT_TARGET' });
-                } catch (e) {
-                    return JSON.stringify({ success: false, error: e.message || String(e) });
-                }
-            })();
-        """.trimIndent()
-    }
-
-    /** Android WebView에서 신뢰된 네이티브 터치를 만들기 위한 전송 버튼 중심 좌표 */
-    fun submitTargetScript(provider: DirectAIProvider): String {
-        val config = providerSelectors(provider)
-        return """
-            (function() {
-                var selectors = ${config.send};
-                for (var i = 0; i < selectors.length; i++) {
-                    try {
-                        var candidates = document.querySelectorAll(selectors[i]);
-                        for (var j = 0; j < candidates.length; j++) {
-                            var el = candidates[j];
-                            var r = el.getBoundingClientRect();
-                            var s = window.getComputedStyle(el);
-                            if (r.width > 0 && r.height > 0 && s.display !== 'none' && s.visibility !== 'hidden' && !el.disabled && el.getAttribute('aria-disabled') !== 'true') {
-                                return JSON.stringify({found:true, x:(r.left+r.width/2)/window.innerWidth, y:(r.top+r.height/2)/window.innerHeight});
-                            }
-                        }
-                    } catch (_) {}
-                }
-                return JSON.stringify({found:false});
-            })();
-        """.trimIndent()
-    }
+    /** Read-only target; native caller must claim again immediately before its touch. */
+    fun submitTargetScript(provider: DirectAIProvider): String = """
+        (function(){${submissionHelpers(provider)}
+        var b=sendButton();if(!b)return JSON.stringify({found:false});
+        var r=b.getBoundingClientRect();
+        return JSON.stringify({found:true,x:(r.left+r.width/2)/innerWidth,y:(r.top+r.height/2)/innerHeight});})();
+    """.trimIndent()
 
     fun focusInputScript(provider: DirectAIProvider): String {
         val config = providerSelectors(provider)
         return """
             (function() {
+                if(window.__sm_cancelled || window.__sm_submit_dispatched) return JSON.stringify({success:false,found:false,error:'TASK_NOT_WRITABLE'});
                 var selectors = ${config.input};
                 for (var i = 0; i < selectors.length; i++) {
                     try {
@@ -802,19 +801,26 @@ object ExternalAIScripts {
                     var inputEl = queryFirst(inputSelectors);
                     var isTextField = inputEl && (inputEl.tagName === 'TEXTAREA' || inputEl.tagName === 'INPUT');
                     var current = inputEl ? (isTextField ? inputEl.value : (inputEl.innerText || inputEl.textContent || '')).trim() : '';
-                    var inputCleared = current.length === 0;
+                    var inputCleared = !!inputEl && current.length === 0;
 
                     var assistantEls = queryAll(assistantSelectors);
-                    var countIncreased = assistantEls.length > baseline;
+                    var previous = window.__sm_ai_baseline || {count:baseline,lastText:''};
+                    var last=assistantEls.length?assistantEls[assistantEls.length-1]:null;
+                    var lastText=last?(last.innerText||last.textContent||'').trim():'';
+                    var countIncreased = lastText.length>0 && (assistantEls.length>baseline || lastText!==previous.lastText);
 
-                    var isGenerating = queryAll(generatingSelectors).some(isVisible);
+                    var isGenerating = generatingSelectors.some(function(selector) {
+                        try { return Array.from(document.querySelectorAll(selector)).some(isVisible); } catch (_) { return false; }
+                    });
 
-                    var submitted = inputCleared || countIncreased || isGenerating;
+                    var submitted = !window.__sm_cancelled && (countIncreased || isGenerating);
 
                     return JSON.stringify({
                         success: true,
                         data: {
                             submitted: submitted,
+                            pending: !submitted && (inputCleared || window.__sm_submit_dispatched===true || !!document.querySelector('[data-message-author-role="user"]')),
+                            dispatched: window.__sm_submit_dispatched===true,
                             inputCleared: inputCleared,
                             countIncreased: countIncreased,
                             isGeneratingVisible: isGenerating,
@@ -1342,6 +1348,29 @@ object ExternalAIScripts {
                 element.asJsonObject.getAsJsonObject("data")?.optBoolean("submitted", false) == true
         }.getOrDefault(false)
     }
+
+    fun parseSubmissionDispatched(rawResult: String?): Boolean = runCatching {
+        val element = rawResult?.let(::parseJsonElement) ?: return false
+        val obj = element.asJsonObject
+        obj.optBoolean("dispatched", false) || obj.getAsJsonObject("data")?.optBoolean("dispatched", false) == true
+    }.getOrDefault(false)
+
+    /** Decode bridge output; the store independently filters every stage and metric. */
+    fun parseDiagnosticEvents(rawResult: String?): List<Pair<String, Map<String, Int>>> = runCatching {
+        val element = rawResult?.let(::parseJsonElement) ?: return emptyList()
+        if (!element.isJsonArray) return emptyList()
+        element.asJsonArray.take(400).mapNotNull { entry ->
+            if (!entry.isJsonObject) return@mapNotNull null
+            val obj = entry.asJsonObject
+            val stage = obj.optString("stage")
+            val metrics = obj.getAsJsonObject("metrics") ?: return@mapNotNull null
+            stage to metrics.entrySet().mapNotNull { (key, value) ->
+                if (!value.isJsonPrimitive || !value.asJsonPrimitive.isNumber) return@mapNotNull null
+                val number = value.asDouble
+                if (number.isFinite() && number == number.toInt().toDouble()) key to number.toInt() else null
+            }.toMap()
+        }
+    }.getOrDefault(emptyList())
 
     fun parseBaselineCount(rawResult: String?): Int {
         if (rawResult == null || rawResult == "null" || rawResult.isBlank()) return 0

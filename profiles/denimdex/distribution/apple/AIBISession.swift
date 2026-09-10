@@ -1,14 +1,12 @@
 //
-//  AIBIEngine.swift
-//  AIBI — AI Browser Interface (Apple Platform Reference)
+//  AIBISession.swift
+//  Portable AIBI core orchestrator — adapted from the canonical AIBI Apple reference
+//  (/Users/armsone/git/AIBI/packages/apple/AIBIEngine.swift, aibi-apple-0.5.0).
+//  No DenimDex product knowledge lives here: prompt text, result schema, and value
+//  rules belong to the host layer (Services/, Features/Scan).
 //
-//  Platform: iOS/iPadOS 15.0+ and Mac Catalyst 15.0+
-//  Framework: SwiftUI & WebKit
-//  Description: Complete, copy-ready reference implementation of AIBI core orchestrator,
-//               lifecycle state machine, and WKWebView adapter. Submission is one-shot per
-//               task (dispatch once, then observe only) and every lifecycle stage is recorded
-//               in the bounded, privacy-safe AIBIDiagnosticsStore.
-//  Date: 2026-09-10
+//  Submission is one-shot per task (dispatch once, then observe only) and every lifecycle
+//  stage is recorded in the bounded, privacy-safe AIBIDiagnosticsStore.
 //
 
 import Foundation
@@ -16,255 +14,40 @@ import WebKit
 import Combine
 import UIKit
 
-// MARK: - Core Enums & Data Models
-
-public enum AIBIPhase: String, Codable, Equatable {
-    case idle = "IDLE"
-    case initializing = "INITIALIZING"
-    case navigating = "NAVIGATING"
-    case readyChecking = "READY_CHECKING"
-    case attachingMedia = "ATTACHING_MEDIA"
-    case injectingPrompt = "INJECTING_PROMPT"
-    case submitting = "SUBMITTING"
-    case generating = "GENERATING"
-    case stabilizing = "STABILIZING"
-    case completed = "COMPLETED"
-    case fallbackRequired = "FALLBACK_REQUIRED"
-    case failed = "FAILED"
-    case cancelled = "CANCELLED"
-}
-
-public enum AIBIFallbackReason: String, Codable, Equatable {
-    case authenticationRequired = "AUTH_REQUIRED"
-    case securityChallengePresented = "SECURITY_CHALLENGE_PRESENTED"
-    case navigationDisallowed = "NAVIGATION_DISALLOWED"
-    case inputMissing = "INPUT_NOT_FOUND"
-    case attachmentFailed = "ATTACHMENT_FAILED"
-    case readinessTimeout = "READINESS_TIMEOUT"
-    case userInterventionRequested = "USER_INTERVENTION_REQUESTED"
-}
-
-public enum AIBIPresentationPreference: String, Codable, Equatable {
-    case alwaysVisible = "ALWAYS_VISIBLE"
-    case visibleWhenNeeded = "VISIBLE_WHEN_NEEDED"
-}
-
-public struct AIBITask: Identifiable, Equatable {
-    public let id: UUID
-    public let providerId: String
-    public let promptText: String
-    public let attachments: [AIBIMediaAttachment]
-    public let presentation: AIBIPresentationPreference
-    public let forceFill: Bool
-
-    public init(
-        id: UUID = UUID(),
-        providerId: String,
-        promptText: String,
-        attachments: [AIBIMediaAttachment] = [],
-        presentation: AIBIPresentationPreference = .visibleWhenNeeded,
-        forceFill: Bool = false
-    ) {
-        self.id = id
-        self.providerId = providerId
-        self.promptText = promptText
-        self.attachments = attachments
-        self.presentation = presentation
-        self.forceFill = forceFill
-    }
-}
-
-public struct AIBIResult: Equatable {
-    public let taskId: UUID
-    public let providerId: String
-    public let rawText: String
-    public let cleanedText: String
-    public let isComplete: Bool
-
-    public init(taskId: UUID, providerId: String, rawText: String, cleanedText: String, isComplete: Bool) {
-        self.taskId = taskId
-        self.providerId = providerId
-        self.rawText = rawText
-        self.cleanedText = cleanedText
-        self.isComplete = isComplete
-    }
-}
-
-public struct AIBIProgress: Equatable {
-    public let phase: AIBIPhase
-    public let elapsedSeconds: Double
-    public let statusMessage: String
-    public let isWaiting: Bool
-
-    public static let initial = AIBIProgress(
-        phase: .idle,
-        elapsedSeconds: 0,
-        statusMessage: "Ready",
-        isWaiting: false
-    )
-}
-
-// MARK: - Host Result Sink & Validator Hook
-
-public protocol AIBIResultSink: AnyObject {
-    /// Validates and commits the imported result to the host application.
-    /// Returning .success commits the data; .failure retains browser state for retry.
-    func commitResult(_ result: AIBIResult) -> Result<Void, Error>
-}
-
-// MARK: - Provider Configuration Model
-
-public struct AIBIProviderSelectors: Codable, Equatable {
-    public let promptInput: [String]
-    public let submitButton: [String]
-    public let stopButton: [String]
-    public let assistantMessage: [String]
-    public let preCode: [String]?
-    public let errorBanner: [String]
-    public let loginIndicator: [String]
-    public let challengeIndicator: [String]
-    public var attachmentInput: [String]? = nil
-    public var attachmentTrigger: [String]? = nil
-    public var attachmentMenuAction: [String]? = nil
-    public var attachmentMenuActionText: [String]? = nil
-    public var attachmentPreview: [String]? = nil
-
-    public init(
-        promptInput: [String],
-        submitButton: [String],
-        stopButton: [String],
-        assistantMessage: [String],
-        preCode: [String]? = nil,
-        errorBanner: [String],
-        loginIndicator: [String],
-        challengeIndicator: [String],
-        attachmentInput: [String]? = nil,
-        attachmentTrigger: [String]? = nil,
-        attachmentMenuAction: [String]? = nil,
-        attachmentMenuActionText: [String]? = nil,
-        attachmentPreview: [String]? = nil
-    ) {
-        self.promptInput = promptInput
-        self.submitButton = submitButton
-        self.stopButton = stopButton
-        self.assistantMessage = assistantMessage
-        self.preCode = preCode
-        self.errorBanner = errorBanner
-        self.loginIndicator = loginIndicator
-        self.challengeIndicator = challengeIndicator
-        self.attachmentInput = attachmentInput
-        self.attachmentTrigger = attachmentTrigger
-        self.attachmentMenuAction = attachmentMenuAction
-        self.attachmentMenuActionText = attachmentMenuActionText
-        self.attachmentPreview = attachmentPreview
-    }
-}
-
-public struct AIBIMediaCapabilities: Codable, Equatable {
-    public let supportsImages: Bool
-    public let maxImagesPerTask: Int
-    public let requiresMultipleInputForBatch: Bool
-
-    public init(supportsImages: Bool = false, maxImagesPerTask: Int = 0, requiresMultipleInputForBatch: Bool = true) {
-        self.supportsImages = supportsImages
-        self.maxImagesPerTask = maxImagesPerTask
-        self.requiresMultipleInputForBatch = requiresMultipleInputForBatch
-    }
-}
-
-public struct AIBIProviderConfig: Identifiable, Codable, Equatable {
-    public let id: String
-    public let displayName: String
-    public let initialUrl: String
-    public let allowedScriptOrigins: [String]
-    public let allowedAuthOrigins: [String]
-    public let selectors: AIBIProviderSelectors
-    public var mediaCapabilities: AIBIMediaCapabilities? = nil
-
-    public init(
-        id: String,
-        displayName: String,
-        initialUrl: String,
-        allowedScriptOrigins: [String],
-        allowedAuthOrigins: [String],
-        selectors: AIBIProviderSelectors,
-        mediaCapabilities: AIBIMediaCapabilities? = nil
-    ) {
-        self.id = id
-        self.displayName = displayName
-        self.initialUrl = initialUrl
-        self.allowedScriptOrigins = allowedScriptOrigins
-        self.allowedAuthOrigins = allowedAuthOrigins
-        self.selectors = selectors
-        self.mediaCapabilities = mediaCapabilities
-    }
-}
-
-// MARK: - Session Configuration & Timers Profile
-
-public struct AIBITimingProfile {
-    public var readinessTimeout: TimeInterval = 35.0
-    public var readinessCadence: TimeInterval = 0.7
-    public var maxReadinessMisses: Int = 12 // ~8.4s of consecutive misses
-    public var attachmentTimeout: TimeInterval = 30.0
-    public var attachmentCadence: TimeInterval = 0.35
-    /// Some providers (e.g. ChatGPT) replace the composer DOM node right after attachment
-    /// insertion or hydration. Bound the relocate/retry loop instead of failing on the first
-    /// transient miss or on a verified-mismatched injection.
-    public var promptInjectionRetryLimit: Int = 4
-    public var promptInjectionRetryDelay: TimeInterval = 0.6
-    public var submitTimeout: TimeInterval = 15.0
-    public var submitCadence: TimeInterval = 0.5
-    public var submitVerificationDelay: TimeInterval = 0.7
-    public var visibleAutoFillTimeout: TimeInterval = 45.0
-    public var observationCadence: TimeInterval = 0.7
-    public var stabilityRequiredTicks: Int = 2 // 3 matching consecutive observations (~1.4s)
-    /// Finite bound on result observation after a verified generation start (portable contract:
-    /// 119 seconds). Reaching it ends the task with a clear failure instead of waiting forever.
-    public var observationTimeout: TimeInterval = 119.0
-
-    public static let `default` = AIBITimingProfile()
-}
-
-// MARK: - AIBISession (Core Orchestrator)
-
 @MainActor
-public final class AIBISession: NSObject, ObservableObject {
-    @Published public private(set) var currentPhase: AIBIPhase = .idle
-    @Published public private(set) var progress: AIBIProgress = .initial
-    @Published public private(set) var isVisibleBrowserPresented: Bool = false
-    @Published public private(set) var activeProviderId: String? = nil
-    @Published public private(set) var pendingResult: AIBIResult? = nil
-    @Published public private(set) var lastErrorMessage: String? = nil
+final class AIBISession: NSObject, ObservableObject {
+    @Published private(set) var currentPhase: AIBIPhase = .idle
+    @Published private(set) var progress: AIBIProgress = .initial
+    @Published private(set) var isVisibleBrowserPresented: Bool = false
+    @Published private(set) var activeProviderId: String?
+    @Published private(set) var pendingResult: AIBIResult?
+    @Published private(set) var lastErrorMessage: String?
 
-    public var timingProfile: AIBITimingProfile = .default
-    public weak var resultSink: AIBIResultSink?
+    var timingProfile: AIBITimingProfile = .default
+    weak var resultSink: AIBIResultSink?
 
-    /// Bounded, privacy-safe on-device diagnostics. Hosts share `AIBIDiagnosticsStore.shared`
-    /// with their Settings export action; set to nil to disable recording entirely.
+    /// Bounded, privacy-safe on-device diagnostics. The host shares `AIBIDiagnosticsStore.shared`
+    /// with its Settings export action; set to nil to disable recording entirely.
     /// Diagnostics never change task outcome: storage failures are absorbed by the store.
-    public var diagnosticsStore: AIBIDiagnosticsStore? = .shared
-    public private(set) var diagnosticRunID: UUID?
+    var diagnosticsStore: AIBIDiagnosticsStore? = .shared
+    private(set) var diagnosticRunID: UUID?
 
     private var activeTask: AIBITask?
     private var activeConfig: AIBIProviderConfig?
     private var generationId: UInt64 = 0
 
-    // WebViews
     private var hiddenWebView: WKWebView?
-    public private(set) var visibleWebView: WKWebView?
+    private(set) var visibleWebView: WKWebView?
 
-    // Shared configuration
     private let webConfiguration: WKWebViewConfiguration
 
-    // Timers and state counters
     private var stateTimer: Timer?
     private var elapsedTimer: Timer?
     private var taskStartTime: Date?
     private var consecutiveMisses: Int = 0
     private var submitAttemptCount: Int = 0
     private var baselineAssistantCount: Int = 0
-    private var stabilityText: String? = nil
+    private var stabilityText: String?
     private var stabilityTickCount: Int = 0
     private var observationStartTime: Date?
     private var pendingAttachmentURLs: [URL] = []
@@ -275,13 +58,12 @@ public final class AIBISession: NSObject, ObservableObject {
     private var submissionDispatched = false
     private var submitAttemptInFlight = false
     /// Total composer preview count expected immediately before send (baseline + requested).
-    private var expectedComposerAttachmentCount: Int? = nil
+    private var expectedComposerAttachmentCount: Int?
 
-    // Runtime JS Cache
     private var runtimeJavaScript: String = ""
     private var runtimeInjectionFailureLogged = false
 
-    public init(runtimeJs: String, configuration: WKWebViewConfiguration? = nil) {
+    init(runtimeJs: String, configuration: WKWebViewConfiguration? = nil) {
         self.runtimeJavaScript = runtimeJs
         if let config = configuration {
             self.webConfiguration = config
@@ -295,11 +77,7 @@ public final class AIBISession: NSObject, ObservableObject {
 
     // MARK: - Public Task Entrypoints
 
-    public func startTask(
-        task: AIBITask,
-        providerConfig: AIBIProviderConfig,
-        hiddenContainer: UIView? = nil
-    ) {
+    func startTask(task: AIBITask, providerConfig: AIBIProviderConfig, hiddenContainer: UIView? = nil) {
         cancelCurrentTask()
 
         self.activeTask = task
@@ -321,13 +99,13 @@ public final class AIBISession: NSObject, ObservableObject {
             (!task.attachments.isEmpty &&
                 (media?.supportsImages != true || task.attachments.count > (media?.maxImagesPerTask ?? 0))) {
             log("media_preparation_failed", ["expected_count": task.attachments.count])
-            failWithError("Image attachments are not supported for this task.")
+            failWithError("이 작업에서는 사진 첨부를 지원하지 않습니다.")
             return
         }
         // Attachments arrive already normalized by the host media pipeline; record counts only.
         log("media_prepared", ["prepared_count": task.attachments.count, "prompt_length": task.promptText.count])
 
-        updatePhase(.initializing, message: "Connecting to \(providerConfig.displayName)...")
+        updatePhase(.initializing, message: "\(providerConfig.displayName)에 연결하는 중…")
         startElapsedTimer()
 
         if task.presentation == .alwaysVisible {
@@ -335,56 +113,48 @@ public final class AIBISession: NSObject, ObservableObject {
         } else if let hiddenContainer {
             mountHiddenBrowser(in: hiddenContainer)
         } else {
-            // An unattached WKWebView is not a valid hidden automation surface.
             presentVisibleBrowser()
         }
 
         guard let targetUrl = URL(string: providerConfig.initialUrl) else {
-            failWithError("Invalid provider URL: \(providerConfig.initialUrl)")
+            failWithError("잘못된 제공자 주소입니다.")
             return
         }
 
         let currentGen = self.generationId
         let webView = activeWebView
         let request = URLRequest(url: targetUrl)
-        updatePhase(.navigating, message: "Loading \(providerConfig.displayName)...")
+        updatePhase(.navigating, message: "\(providerConfig.displayName) 불러오는 중…")
         webView?.load(request)
 
-        // Begin readiness loop
         scheduleReadinessCheck(generation: currentGen)
     }
 
-    public func manualCopyPrompt() {
+    func manualCopyPrompt() {
         guard let prompt = activeTask?.promptText else { return }
         UIPasteboard.general.string = prompt
     }
 
-    public func manualImportText(_ text: String) {
+    func manualImportText(_ text: String) {
         guard let task = activeTask else { return }
-        let cleaned = cleanOutputLocally(text, providerId: task.providerId)
-        let result = AIBIResult(
-            taskId: task.id,
-            providerId: task.providerId,
-            rawText: text,
-            cleanedText: cleaned,
-            isComplete: true
-        )
+        let cleaned = cleanOutputLocally(text)
+        let result = AIBIResult(taskId: task.id, providerId: task.providerId, rawText: text, cleanedText: cleaned, isComplete: true)
         completeWithResult(result)
     }
 
-    public func cancelCurrentTask() {
+    func cancelCurrentTask() {
         stopAllTimers()
         generationId &+= 1
         if isRunActive { log("run_cancelled") }
         clearPendingAttachmentFiles()
         if currentPhase != .idle {
-            updatePhase(.cancelled, message: "Cancelled")
+            updatePhase(.cancelled, message: "취소됨")
         }
         destroyHiddenBrowser()
-        // Note: activeProviderId is preserved so manual paste remains available if visible view is open
+        // activeProviderId is preserved so manual paste remains available if the visible view is open.
     }
 
-    public func fullReset() {
+    func fullReset() {
         stopAllTimers()
         generationId &+= 1
         if isRunActive { log("run_cancelled") }
@@ -398,7 +168,12 @@ public final class AIBISession: NSObject, ObservableObject {
         pendingResult = nil
         lastErrorMessage = nil
         diagnosticRunID = nil
-        updatePhase(.idle, message: "Ready")
+        updatePhase(.idle, message: "대기 중")
+    }
+
+    func dismissVisibleBrowserForCancel() {
+        cancelCurrentTask()
+        destroyVisibleBrowser()
     }
 
     // MARK: - Diagnostics (privacy-safe, never affects task outcome)
@@ -454,43 +229,31 @@ public final class AIBISession: NSObject, ObservableObject {
         }
     }
 
-    // MARK: - State Machine Transitions & Timers
+    // MARK: - State machine
 
     private func updatePhase(_ phase: AIBIPhase, message: String, isWaiting: Bool = false) {
         self.currentPhase = phase
         let elapsed = taskStartTime.map { Date().timeIntervalSince($0) } ?? 0
-        self.progress = AIBIProgress(
-            phase: phase,
-            elapsedSeconds: elapsed,
-            statusMessage: message,
-            isWaiting: isWaiting
-        )
+        self.progress = AIBIProgress(phase: phase, elapsedSeconds: elapsed, statusMessage: message, isWaiting: isWaiting)
     }
 
     private func startElapsedTimer() {
         elapsedTimer?.invalidate()
         elapsedTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
             Task { @MainActor [weak self] in
-                guard let self = self, self.taskStartTime != nil else { return }
+                guard let self, self.taskStartTime != nil else { return }
                 let elapsed = Date().timeIntervalSince(self.taskStartTime!)
-                self.progress = AIBIProgress(
-                    phase: self.currentPhase,
-                    elapsedSeconds: elapsed,
-                    statusMessage: self.progress.statusMessage,
-                    isWaiting: self.progress.isWaiting
-                )
+                self.progress = AIBIProgress(phase: self.currentPhase, elapsedSeconds: elapsed, statusMessage: self.progress.statusMessage, isWaiting: self.progress.isWaiting)
             }
         }
     }
 
     private func stopAllTimers() {
-        stateTimer?.invalidate()
-        stateTimer = nil
-        elapsedTimer?.invalidate()
-        elapsedTimer = nil
+        stateTimer?.invalidate(); stateTimer = nil
+        elapsedTimer?.invalidate(); elapsedTimer = nil
     }
 
-    // MARK: - Readiness Phase
+    // MARK: - Readiness
 
     private func scheduleReadinessCheck(generation: UInt64) {
         stateTimer?.invalidate()
@@ -499,18 +262,13 @@ public final class AIBISession: NSObject, ObservableObject {
 
         stateTimer = Timer.scheduledTimer(withTimeInterval: timingProfile.readinessCadence, repeats: true) { [weak self] timer in
             Task { @MainActor [weak self] in
-                guard let self = self, self.generationId == generation else {
-                    timer.invalidate()
-                    return
-                }
-
-                // Check overall readiness timeout
+                guard let self, self.generationId == generation else { timer.invalidate(); return }
                 if Date().timeIntervalSince(startTime) > self.timingProfile.readinessTimeout {
                     timer.invalidate()
-                    self.escalateToVisible(reason: .readinessTimeout)
+                    self.log("composer_missing", ["composer_present": 0, "attempt": min(1000, self.consecutiveMisses)])
+                    self.failWithError("ChatGPT 입력 화면을 준비하지 못했습니다. 잠시 후 다시 시도해주세요.")
                     return
                 }
-
                 await self.performReadinessProbe(generation: generation, timer: timer)
             }
         }
@@ -519,87 +277,71 @@ public final class AIBISession: NSObject, ObservableObject {
     private func performReadinessProbe(generation: UInt64, timer: Timer) async {
         guard let config = activeConfig, let webView = activeWebView else { return }
         await ensureRuntimeInjected(webView: webView)
+        guard generationId == generation else { return }
 
         let script = "window.__AIBI_RUNTIME__.checkReadiness(\(configJson(config)))"
-        do {
-            let result = try await evaluateScript(script, on: webView)
-            guard generationId == generation else { return }
-            guard let json = parseJson(result),
-                  let success = json["success"] as? Bool, success,
-                  let data = json["data"] as? [String: Any] else {
-                return
-            }
+        guard let result = try? await evaluateScript(script, on: webView) else { return }
+        guard generationId == generation else { return }
+        guard let json = parseJson(result), json["success"] as? Bool == true, let data = json["data"] as? [String: Any] else { return }
 
-            let isReady = data["isReady"] as? Bool ?? false
-            let isLoggedIn = data["isLoggedIn"] as? Bool ?? true
-            let hasChallenge = data["hasChallenge"] as? Bool ?? false
-            let reason = data["reason"] as? String
+        let isReady = data["isReady"] as? Bool ?? false
+        let isLoggedIn = data["isLoggedIn"] as? Bool ?? true
+        let hasChallenge = data["hasChallenge"] as? Bool ?? false
+        let reason = data["reason"] as? String
 
-            if !isLoggedIn {
-                timer.invalidate()
-                escalateToVisible(reason: .authenticationRequired)
-                return
-            }
-
-            if hasChallenge {
-                timer.invalidate()
-                escalateToVisible(reason: .securityChallengePresented)
-                return
-            }
-
-            if isReady {
-                timer.invalidate()
-                log("composer_found", ["composer_present": 1])
-                await recordBaselineAndInject(generation: generation)
-            } else if reason == "INPUT_NOT_FOUND" {
-                consecutiveMisses += 1
-                if consecutiveMisses >= timingProfile.maxReadinessMisses {
-                    timer.invalidate()
-                    log("composer_missing", ["composer_present": 0, "attempt": consecutiveMisses])
-                    escalateToVisible(reason: .inputMissing)
-                }
-            }
-        } catch {
-            // Silently continue until deadline
+        if !isLoggedIn {
+            timer.invalidate(); escalateToVisible(reason: .authenticationRequired); return
+        }
+        if hasChallenge {
+            timer.invalidate(); escalateToVisible(reason: .securityChallengePresented); return
+        }
+        if isReady {
+            timer.invalidate()
+            log("composer_found", ["composer_present": 1])
+            await recordBaselineAndInject(generation: generation)
+        } else if reason == "INPUT_NOT_FOUND" {
+            consecutiveMisses += 1
+            // ChatGPT의 모바일 화면은 로그인 세션 복원 뒤 작성기를 늦게 교체한다.
+            // 숨김 실행을 몇 초 만에 포기해 브라우저를 노출하지 않고 전체 readinessTimeout 동안 기다린다.
         }
     }
 
-    // MARK: - Injection & Submission Phase
+    // MARK: - Injection & submission
 
     private func recordBaselineAndInject(generation: UInt64) async {
         guard let config = activeConfig, let webView = activeWebView, let task = activeTask else { return }
-        updatePhase(.injectingPrompt, message: "Preparing prompt...")
+        updatePhase(.injectingPrompt, message: "프롬프트 준비하는 중…")
 
-        // Record baseline
         let baselineScript = "window.__AIBI_RUNTIME__.getBaselineState(\(configJson(config)))"
         if let baselineResult = try? await evaluateScript(baselineScript, on: webView),
-           let json = parseJson(baselineResult),
-           let data = json["data"] as? [String: Any] {
+           let json = parseJson(baselineResult), let data = json["data"] as? [String: Any] {
             self.baselineAssistantCount = data["assistantCount"] as? Int ?? 0
         }
         guard generationId == generation else { return }
 
         if !task.attachments.isEmpty {
-            let attached = await attachImagesAtomically(
-                task.attachments,
-                config: config,
-                webView: webView,
-                generation: generation
-            )
+            let attached = await attachImagesAtomically(task.attachments, config: config, webView: webView, generation: generation)
             guard attached else {
                 if generationId == generation {
                     log("attachment_failed", ["expected_count": task.attachments.count])
-                    escalateToVisible(reason: .attachmentFailed)
+                    failWithError("사진을 ChatGPT에 모두 첨부하지 못했습니다. 다시 시도해주세요.")
                 }
                 return
             }
         }
         guard generationId == generation else { return }
 
-        // Inject prompt, boundedly retrying transient misses caused by a provider replacing the
-        // composer DOM node after attachments or hydration (see quirks.lateDomReplacement).
+        // ChatGPT는 첨부 직후나 초기 hydration 중에 작성기 DOM 노드를 자주 교체한다
+        // (aibi-providers.json chatgpt.quirks.lateDomReplacement). 첫 번째 일시적 실패나
+        // 검증 불일치에서 바로 실패로 단정하지 않고, 유한한 횟수만큼 다시 찾아 재시도한다.
+        // 재시도는 전송 전(dispatch 이전)에만 일어난다; 전송 후에는 런타임이 SUBMISSION_PENDING을 돌려준다.
         let escapedPrompt = escapeJsString(task.promptText)
-        let injectScript = "window.__AIBI_RUNTIME__.injectPrompt(\(configJson(config)), '\(escapedPrompt)', \(task.forceFill))"
+        // 숨김 WebView는 isUserInteractionEnabled = false라 사용자가 직접 타이핑할 수 없다.
+        // 그 작성기에 남아 있는 내용은 실제 사용자 초안이 아니라 이전 자동화 시도의 잔여물뿐이므로
+        // 안전하게 덮어써도 된다. 화면에 노출된 뒤에는(escalateToVisible 이후) 사용자가 실제로
+        // 입력할 수 있으므로 기존의 보존 규칙을 그대로 따른다.
+        let safeToOverwrite = task.forceFill || !isVisibleBrowserPresented
+        let injectScript = "window.__AIBI_RUNTIME__.injectPrompt(\(configJson(config)), '\(escapedPrompt)', \(safeToOverwrite))"
         let verifyScript = "window.__AIBI_RUNTIME__.verifyPromptInjected(\(configJson(config)), '\(escapedPrompt)')"
 
         var attempt = 0
@@ -617,44 +359,57 @@ public final class AIBISession: NSObject, ObservableObject {
             let injectSucceeded = injectJson?["success"] as? Bool ?? false
             let injectCode = injectJson?["code"] as? String
 
-            // A different, non-empty user prompt is a terminal state: never overwrite it without
-            // an explicit force retry, and never blindly retry it either.
-            if injectCode == "EXISTING_TEXT_PRESERVED" {
-                log("prompt_failed", ["attempt": attempt, "prompt_present": 1])
-                escalateToVisible(reason: .inputMissing)
-                return
-            }
-
+            var verifiedMatch = false
             if injectSucceeded {
-                // A JS exception's absence does not prove the text landed: ChatGPT can swap the
-                // composer node between injection and this verification call. Confirm the value.
-                let verifyResult = try? await evaluateScript(verifyScript, on: webView)
-                guard generationId == generation else { return }
-                if let verifyResult,
+                // JS 예외가 없다고 해서 프롬프트가 실제로 남아 있다는 뜻은 아니다.
+                // injectPrompt와 이 검증 호출 사이에 작성기 노드가 교체될 수 있으므로 다시 읽어 확인한다.
+                if let verifyResult = try? await evaluateScript(verifyScript, on: webView),
                    let verifyJson = parseJson(verifyResult),
-                   let verifyData = verifyJson["data"] as? [String: Any],
-                   verifyData["matches"] as? Bool == true {
-                    log("prompt_inserted", ["prompt_length": task.promptText.count, "attempt": attempt])
-                    startSubmissionLoop(generation: generation)
-                    return
+                   let verifyData = verifyJson["data"] as? [String: Any] {
+                    verifiedMatch = verifyData["matches"] as? Bool ?? false
                 }
+                guard generationId == generation else { return }
             }
 
-            try? await Task.sleep(nanoseconds: UInt64(timingProfile.promptInjectionRetryDelay * 1_000_000_000))
+            switch Self.classifyInjectionAttempt(injectSucceeded: injectSucceeded, injectCode: injectCode, verifiedMatch: verifiedMatch) {
+            case .injected:
+                log("prompt_inserted", ["prompt_length": task.promptText.count, "attempt": attempt])
+                startSubmissionLoop(generation: generation)
+                return
+            case .terminal:
+                // 사용자가 입력창에 이미 다른 내용을 남겨둔 경우: force 없이는 절대 덮어쓰지 않고,
+                // 재시도도 하지 않는다.
+                log("prompt_failed", ["attempt": attempt, "prompt_present": 1])
+                failWithError("ChatGPT 입력창에 이미 다른 내용이 있어 자동 입력을 건너뛰었습니다. 직접 확인해주세요.")
+                return
+            case .retryable:
+                try? await Task.sleep(nanoseconds: UInt64(timingProfile.promptInjectionRetryDelay * 1_000_000_000))
+            }
         }
 
         guard generationId == generation else { return }
         log("prompt_failed", ["attempt": attempt, "prompt_present": 0])
-        escalateToVisible(reason: .inputMissing)
+        failWithError("ChatGPT 입력 화면을 제어하지 못했습니다. 다시 시도해주세요.")
     }
 
-    private func attachImagesAtomically(
-        _ attachments: [AIBIMediaAttachment],
-        config: AIBIProviderConfig,
-        webView: WKWebView,
-        generation: UInt64
-    ) async -> Bool {
-        updatePhase(.attachingMedia, message: "Attaching \(attachments.count) photos...", isWaiting: true)
+    /// 순수 분류 함수: injectPrompt/verifyPromptInjected 결과만으로 다음 행동을 결정한다.
+    /// WebView 없이 단위 테스트가 가능하도록 부수효과 없이 분리했다.
+    nonisolated static func classifyInjectionAttempt(
+        injectSucceeded: Bool,
+        injectCode: String?,
+        verifiedMatch: Bool
+    ) -> AIBIPromptInjectionOutcome {
+        if injectCode == "EXISTING_TEXT_PRESERVED" {
+            return .terminal
+        }
+        if injectSucceeded && verifiedMatch {
+            return .injected
+        }
+        return .retryable
+    }
+
+    private func attachImagesAtomically(_ attachments: [AIBIMediaAttachment], config: AIBIProviderConfig, webView: WKWebView, generation: UInt64) async -> Bool {
+        updatePhase(.attachingMedia, message: "사진 \(attachments.count)장 첨부하는 중…", isWaiting: true)
         log("attachment_started", ["expected_count": attachments.count])
         let encodedConfig = configJson(config)
         let stateScript = "window.__AIBI_RUNTIME__.getAttachmentState(\(encodedConfig))"
@@ -670,25 +425,14 @@ public final class AIBISession: NSObject, ObservableObject {
                 pendingAttachmentURLs = try makeTemporaryAttachmentFiles(attachments)
                 nativeAttachmentPanelHandled = false
                 for _ in 0..<3 where generationId == generation && !nativeAttachmentPanelHandled {
-                    _ = try? await evaluateScript(
-                        "window.__AIBI_RUNTIME__.prepareAttachmentInput(\(encodedConfig))",
-                        on: webView
-                    )
+                    _ = try? await evaluateScript("window.__AIBI_RUNTIME__.prepareAttachmentInput(\(encodedConfig))", on: webView)
                     guard generationId == generation else { return false }
-                    _ = try? await evaluateScript(
-                        "window.__AIBI_RUNTIME__.openAttachmentPanel(\(encodedConfig))",
-                        on: webView
-                    )
+                    _ = try? await evaluateScript("window.__AIBI_RUNTIME__.openAttachmentPanel(\(encodedConfig))", on: webView)
                     try? await Task.sleep(nanoseconds: 700_000_000)
                 }
                 guard generationId == generation else { return false }
                 if nativeAttachmentPanelHandled,
-                   await waitForAttachmentCount(
-                       expectedTotal,
-                       stateScript: stateScript,
-                       webView: webView,
-                       generation: generation
-                   ) {
+                   await waitForAttachmentCount(expectedTotal, stateScript: stateScript, webView: webView, generation: generation) {
                     // A preview only proves that the provider accepted the local file selection.
                     // Keep the source URLs alive through the full task: ChatGPT can continue
                     // reading them while the prompt is already visible in the conversation.
@@ -708,21 +452,15 @@ public final class AIBISession: NSObject, ObservableObject {
         guard generationId == generation else { return false }
 
         let ordered = attachments.sorted { $0.sourceIndex < $1.sourceIndex }
-        guard let beginResult = try? await evaluateScript(
-            "window.__AIBI_RUNTIME__.beginAttachmentBatch(\(encodedConfig), \(ordered.count))",
-            on: webView
-        ), parseJson(beginResult)?["success"] as? Bool == true else {
-            return false
-        }
+        guard let beginResult = try? await evaluateScript("window.__AIBI_RUNTIME__.beginAttachmentBatch(\(encodedConfig), \(ordered.count))", on: webView),
+              parseJson(beginResult)?["success"] as? Bool == true else { return false }
+
         for (index, attachment) in ordered.enumerated() {
             guard generationId == generation else { return false }
             let image = ["dataUrl": attachment.dataURL, "mimeType": attachment.mimeType, "filename": attachment.filename]
             guard let imageData = try? JSONSerialization.data(withJSONObject: image),
                   let imageJson = String(data: imageData, encoding: .utf8),
-                  let staged = try? await evaluateScript(
-                    "window.__AIBI_RUNTIME__.stageAttachment(\(imageJson), \(index))",
-                    on: webView
-                  ),
+                  let staged = try? await evaluateScript("window.__AIBI_RUNTIME__.stageAttachment(\(imageJson), \(index))", on: webView),
                   parseJson(staged)?["success"] as? Bool == true else {
                 _ = try? await evaluateScript("window.__AIBI_RUNTIME__.clearAttachmentBatch()", on: webView)
                 return false
@@ -733,28 +471,16 @@ public final class AIBISession: NSObject, ObservableObject {
             _ = try? await evaluateScript("window.__AIBI_RUNTIME__.clearAttachmentBatch()", on: webView)
             return false
         }
-        guard let attachResult = try? await evaluateScript(
-            "window.__AIBI_RUNTIME__.commitAttachmentBatch(\(encodedConfig))",
-            on: webView
-        ), parseJson(attachResult)?["success"] as? Bool == true else { return false }
+        guard let attachResult = try? await evaluateScript("window.__AIBI_RUNTIME__.commitAttachmentBatch(\(encodedConfig))", on: webView),
+              parseJson(attachResult)?["success"] as? Bool == true else { return false }
         log("attachment_dispatched", ["attached_count": ordered.count])
 
-        return await waitForAttachmentCount(
-            expectedTotal,
-            stateScript: stateScript,
-            webView: webView,
-            generation: generation
-        )
+        return await waitForAttachmentCount(expectedTotal, stateScript: stateScript, webView: webView, generation: generation)
     }
 
-    private func waitForAttachmentCount(
-        _ expectedCount: Int,
-        stateScript: String,
-        webView: WKWebView,
-        generation: UInt64
-    ) async -> Bool {
+    private func waitForAttachmentCount(_ expectedCount: Int, stateScript: String, webView: WKWebView, generation: UInt64) async -> Bool {
         let deadline = Date().addingTimeInterval(timingProfile.attachmentTimeout)
-        var lastObserved: Int? = nil
+        var lastObserved: Int?
         while generationId == generation && Date() < deadline {
             if let state = try? await evaluateScript(stateScript, on: webView),
                let count = parseAttachmentPreviewCount(state) {
@@ -778,8 +504,7 @@ public final class AIBISession: NSObject, ObservableObject {
 
     private func makeTemporaryAttachmentFiles(_ attachments: [AIBIMediaAttachment]) throws -> [URL] {
         clearPendingAttachmentFiles()
-        let directory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("AIBIUploads-\(UUID().uuidString)", isDirectory: true)
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("AIBIUploads-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         do {
             return try attachments.sorted { $0.sourceIndex < $1.sourceIndex }.map { attachment in
@@ -813,22 +538,17 @@ public final class AIBISession: NSObject, ObservableObject {
         submissionDispatched = false
         submitAttemptInFlight = false
         let startTime = Date()
-        updatePhase(.submitting, message: "Sending prompt...")
+        updatePhase(.submitting, message: "프롬프트 전송하는 중…")
         log("send_ready", ["expected_count": expectedComposerAttachmentCount ?? 0])
 
         stateTimer = Timer.scheduledTimer(withTimeInterval: timingProfile.submitCadence + timingProfile.submitVerificationDelay, repeats: true) { [weak self] timer in
             Task { @MainActor [weak self] in
-                guard let self = self, self.generationId == generation else {
-                    timer.invalidate()
-                    return
-                }
-
+                guard let self, self.generationId == generation else { timer.invalidate(); return }
                 if Date().timeIntervalSince(startTime) > self.timingProfile.submitTimeout {
                     timer.invalidate()
                     self.handleSubmitTimeout(generation: generation)
                     return
                 }
-
                 await self.performSubmitAttempt(generation: generation, timer: timer)
             }
         }
@@ -837,14 +557,13 @@ public final class AIBISession: NSObject, ObservableObject {
     private func handleSubmitTimeout(generation: UInt64) {
         guard generationId == generation else { return }
         if submissionDispatched {
-            // The prompt (and any photos) may already be consumed by the provider. Re-sending,
-            // refilling text only, or opening a fresh browser could duplicate or strip the
-            // request, so end with a clear failure and a concrete user action instead.
+            // 프롬프트(와 사진)가 이미 ChatGPT에 소비됐을 수 있다. 재전송·텍스트만 다시 채우기·새 브라우저 열기는
+            // 요청을 중복시키거나 사진을 빠뜨릴 수 있으므로, 명확한 실패와 구체적인 사용자 행동으로 끝낸다.
             log("send_timeout", ["attempt": submitAttemptCount, "attachment_verified": 1])
-            failWithError("The prompt was sent, but no response started within the time limit. Check the provider page for the sent message, then share the AI diagnostics log from Settings and try again.")
+            failWithError("프롬프트는 전송됐지만 제한 시간 안에 답변이 시작되지 않았습니다. ChatGPT 화면에서 보낸 메시지를 확인한 뒤, 설정의 AI 진단 로그를 공유하고 다시 시도해주세요.")
         } else {
-            // Nothing was dispatched: prompt and attachments are still in the composer, so the
-            // visible browser can take over safely without a text-only resend.
+            // 아무것도 전송되지 않았다: 프롬프트와 첨부가 아직 작성기에 남아 있으므로
+            // 텍스트만 재전송하지 않고 보이는 브라우저(또는 hiddenOnly 실패 메시지)로 넘긴다.
             log("send_timeout", ["attempt": submitAttemptCount, "attachment_verified": 0])
             escalateToVisible(reason: .inputMissing)
         }
@@ -860,8 +579,8 @@ public final class AIBISession: NSObject, ObservableObject {
         let encodedConfig = configJson(config)
 
         if !submissionDispatched {
-            // Re-check that every requested attachment is still in the current composer right
-            // before the click. Photos consumed or dropped after attach must block a text-only send.
+            // 전송 직전, 요청한 첨부가 전부 현재 작성기에 남아 있는지 다시 센다.
+            // 첨부 뒤에 소비되거나 빠진 사진이 있으면 텍스트만 전송되는 것을 막는다.
             if let expected = expectedComposerAttachmentCount {
                 let state = try? await evaluateScript("window.__AIBI_RUNTIME__.getAttachmentState(\(encodedConfig))", on: webView)
                 guard generationId == generation else { return }
@@ -886,13 +605,12 @@ public final class AIBISession: NSObject, ObservableObject {
                 submissionDispatched = true
                 log("send_attempted", ["attempt": submitAttemptCount, "attachment_verified": expectedComposerAttachmentCount == nil ? 0 : 1])
             } else {
-                // No send target yet (composer still hydrating, button disabled). Wait for the
-                // next tick; the runtime guarantees it dispatches at most once per page anyway.
+                // 아직 전송 대상이 없다(작성기 hydration 중, 버튼 비활성). 다음 틱을 기다린다.
+                // 런타임도 페이지당 최대 한 번만 전송하도록 보장한다.
                 return
             }
         }
 
-        // Wait verification delay before checking
         try? await Task.sleep(nanoseconds: UInt64(timingProfile.submitVerificationDelay * 1_000_000_000))
         guard generationId == generation else { return }
 
@@ -903,40 +621,38 @@ public final class AIBISession: NSObject, ObservableObject {
         let verifyResult = try? await evaluateScript(verifyScript, on: webView)
         guard generationId == generation else { return }
         if let verifyResult,
-           let json = parseJson(verifyResult),
-           let data = json["data"] as? [String: Any],
-           let submitted = data["submitted"] as? Bool, submitted {
+           let json = parseJson(verifyResult), let data = json["data"] as? [String: Any],
+           data["submitted"] as? Bool == true {
             timer.invalidate()
             log("send_observed", ["attempt": submitAttemptCount])
             startObservationLoop(generation: generation)
         }
     }
 
-    // MARK: - Observation & Stability Phase
+    // MARK: - Observation & stability
 
     private func startObservationLoop(generation: UInt64) {
         stateTimer?.invalidate()
+        // 숨김 브라우저의 작성기가 first responder로 남으면 iOS가 호스트 앱 하단에
+        // 이전/다음/완료 입력 보조 막대를 띄운다. 전송이 끝난 뒤에는 입력 포커스가
+        // 필요하지 않으므로 즉시 해제해 스캔 화면에 WebKit UI가 새어 나오지 않게 한다.
+        dismissHiddenBrowserInputUI()
         stabilityText = nil
         stabilityTickCount = 0
         observationStartTime = Date()
-        updatePhase(.generating, message: "Waiting for answer...", isWaiting: true)
+        updatePhase(.generating, message: "답변을 기다리는 중…", isWaiting: true)
         log("generation_started", ["generation_active": 1])
 
         stateTimer = Timer.scheduledTimer(withTimeInterval: timingProfile.observationCadence, repeats: true) { [weak self] timer in
             Task { @MainActor [weak self] in
-                guard let self = self, self.generationId == generation else {
-                    timer.invalidate()
-                    return
-                }
-
+                guard let self, self.generationId == generation else { timer.invalidate(); return }
                 if let started = self.observationStartTime,
                    Date().timeIntervalSince(started) > self.timingProfile.observationTimeout {
                     timer.invalidate()
                     self.log("generation_failed", ["generation_active": 0, "stable_samples": self.stabilityTickCount])
-                    self.failWithError("No answer arrived within the time limit. Check the provider page, then try again.")
+                    self.failWithError("제한 시간 안에 답변이 도착하지 않았습니다. ChatGPT 화면을 확인한 뒤 다시 시도해주세요.")
                     return
                 }
-
                 await self.performObservationTick(generation: generation, timer: timer)
             }
         }
@@ -949,78 +665,58 @@ public final class AIBISession: NSObject, ObservableObject {
         guard generationId == generation else { return }
 
         let script = "window.__AIBI_RUNTIME__.observeGeneration(\(configJson(config)), \(baselineAssistantCount))"
-        do {
-            let result = try await evaluateScript(script, on: webView)
-            guard generationId == generation else { return }
-            guard let json = parseJson(result),
-                  let success = json["success"] as? Bool, success,
-                  let data = json["data"] as? [String: Any] else {
-                return
-            }
+        guard let result = try? await evaluateScript(script, on: webView) else { return }
+        guard generationId == generation else { return }
+        guard let json = parseJson(result), json["success"] as? Bool == true, let data = json["data"] as? [String: Any] else { return }
 
-            let phaseStr = data["phase"] as? String ?? "GENERATING"
-            let isGenerating = data["isGenerating"] as? Bool ?? true
-            let hasNewAnswer = data["hasNewAnswer"] as? Bool ?? false
-            let rawText = data["rawText"] as? String ?? ""
-            let errorMessage = data["errorMessage"] as? String
+        let phaseStr = data["phase"] as? String ?? "GENERATING"
+        let isGenerating = data["isGenerating"] as? Bool ?? true
+        let hasNewAnswer = data["hasNewAnswer"] as? Bool ?? false
+        let rawText = data["rawText"] as? String ?? ""
+        let errorMessage = data["errorMessage"] as? String
 
-            if phaseStr == "FAILED", let err = errorMessage {
-                timer.invalidate()
-                log("generation_failed", ["generation_active": isGenerating ? 1 : 0, "response_length": rawText.count])
-                failWithError(err)
-                return
-            }
+        if phaseStr == "FAILED", let err = errorMessage {
+            timer.invalidate()
+            log("generation_failed", ["generation_active": isGenerating ? 1 : 0, "response_length": rawText.count])
+            failWithError(err)
+            return
+        }
+        if phaseStr == "FALLBACK_REQUIRED" {
+            timer.invalidate(); escalateToVisible(reason: .securityChallengePresented); return
+        }
 
-            if phaseStr == "FALLBACK_REQUIRED" {
-                timer.invalidate()
-                escalateToVisible(reason: .securityChallengePresented)
-                return
-            }
-
-            if hasNewAnswer && !isGenerating && !rawText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                // Stability Reducer
-                if let prev = stabilityText, prev == rawText {
-                    stabilityTickCount += 1
-                    if stabilityTickCount >= timingProfile.stabilityRequiredTicks {
-                        timer.invalidate()
-                        log("generation_completed", ["response_length": rawText.count, "stable_samples": stabilityTickCount + 1])
-                        let cleanScript = "window.__AIBI_RUNTIME__.cleanOutput('\(escapeJsString(rawText))', '\(task.providerId)')"
-                        var cleaned = rawText
-                        let cleanResult = try? await evaluateScript(cleanScript, on: webView)
-                        guard generationId == generation else { return }
-                        if let cleanResult,
-                           let cleanJson = parseJson(cleanResult),
-                           let cleanData = cleanJson["data"] as? [String: Any],
-                           let cleanText = cleanData["cleanedText"] as? String {
-                            cleaned = cleanText
-                        }
-
-                        let finalResult = AIBIResult(
-                            taskId: task.id,
-                            providerId: task.providerId,
-                            rawText: rawText,
-                            cleanedText: cleaned,
-                            isComplete: true
-                        )
-                        completeWithResult(finalResult)
+        if hasNewAnswer && !isGenerating && !rawText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            if let prev = stabilityText, prev == rawText {
+                stabilityTickCount += 1
+                if stabilityTickCount >= timingProfile.stabilityRequiredTicks {
+                    timer.invalidate()
+                    log("generation_completed", ["response_length": rawText.count, "stable_samples": stabilityTickCount + 1])
+                    let cleanScript = "window.__AIBI_RUNTIME__.cleanOutput('\(escapeJsString(rawText))', '\(task.providerId)')"
+                    var cleaned = rawText
+                    let cleanResult = try? await evaluateScript(cleanScript, on: webView)
+                    guard generationId == generation else { return }
+                    if let cleanResult,
+                       let cleanJson = parseJson(cleanResult), let cleanData = cleanJson["data"] as? [String: Any],
+                       let cleanText = cleanData["cleanedText"] as? String {
+                        cleaned = cleanText
                     }
-                } else {
-                    stabilityText = rawText
-                    stabilityTickCount = 0
-                    log("generation_progress", ["response_length": rawText.count, "generation_active": 0])
-                    updatePhase(.stabilizing, message: "Receiving answer...", isWaiting: true)
+                    let finalResult = AIBIResult(taskId: task.id, providerId: task.providerId, rawText: rawText, cleanedText: cleaned, isComplete: true)
+                    completeWithResult(finalResult)
                 }
             } else {
-                stabilityText = nil
+                stabilityText = rawText
                 stabilityTickCount = 0
-                updatePhase(.generating, message: "Waiting for answer...", isWaiting: true)
+                log("generation_progress", ["response_length": rawText.count, "generation_active": 0])
+                updatePhase(.stabilizing, message: "답변을 받는 중…", isWaiting: true)
             }
-        } catch {
-            // Silently continue observation
+        } else {
+            stabilityText = nil
+            stabilityTickCount = 0
+            updatePhase(.generating, message: "답변을 기다리는 중…", isWaiting: true)
         }
     }
 
-    // MARK: - Completion & Fallback Handling
+    // MARK: - Completion & fallback
 
     private func completeWithResult(_ result: AIBIResult) {
         stopAllTimers()
@@ -1029,29 +725,25 @@ public final class AIBISession: NSObject, ObservableObject {
         generationId &+= 1
         clearPendingAttachmentFiles()
         self.pendingResult = result
-
-        // 1. Copy to clipboard
         UIPasteboard.general.string = result.cleanedText
 
-        // 2. Commit to host result sink before dismissal
         if let sink = resultSink {
-            let commitOutcome = sink.commitResult(result)
-            switch commitOutcome {
+            switch sink.commitResult(result) {
             case .success:
                 log("result_applied", ["response_length": result.cleanedText.count])
                 log("run_completed")
-                updatePhase(.completed, message: "Import completed")
+                updatePhase(.completed, message: "가져오기 완료")
                 dismissVisibleBrowser()
                 destroyHiddenBrowser()
             case .failure(let err):
                 // Only the outcome is recorded; the host's error text never enters the log.
                 log("response_rejected", ["response_length": result.cleanedText.count])
-                updatePhase(.failed, message: "Host import validation failed: \(err.localizedDescription)")
+                updatePhase(.failed, message: "결과 검증 실패: \(err.localizedDescription)")
             }
         } else {
             log("result_applied", ["response_length": result.cleanedText.count])
             log("run_completed")
-            updatePhase(.completed, message: "Result ready")
+            updatePhase(.completed, message: "결과 준비됨")
             dismissVisibleBrowser()
             destroyHiddenBrowser()
         }
@@ -1069,21 +761,46 @@ public final class AIBISession: NSObject, ObservableObject {
     }
 
     private func escalateToVisible(reason: AIBIFallbackReason) {
+        if activeTask?.presentation == .hiddenOnly {
+            let message: String
+            switch reason {
+            case .authenticationRequired:
+                message = "ChatGPT 로그인이 필요합니다. 설정의 AI 로그인 관리에서 먼저 로그인해주세요."
+            case .securityChallengePresented:
+                message = "ChatGPT 보안 확인이 필요합니다. 설정의 AI 로그인 관리에서 확인해주세요."
+            case .navigationDisallowed:
+                message = "ChatGPT가 허용되지 않은 페이지로 이동했습니다. 설정에서 로그인 상태를 확인해주세요."
+            case .inputMissing:
+                message = "ChatGPT 전송 버튼을 찾지 못해 프롬프트를 보내지 못했습니다. 잠시 후 다시 시도해주세요."
+            default:
+                message = "숨김 분석을 계속할 수 없습니다. 잠시 후 다시 시도해주세요."
+            }
+            failWithError(message)
+            return
+        }
         stopAllTimers()
-        // Hidden automation for this generation ends here; the visible browser is user-driven.
+        // 이 세대의 숨김 자동화는 여기서 끝난다. 진행 중이던 비동기 단계가 늦게 전송·첨부하지 못하도록
+        // 세대를 올리고, 사용자 개입이 끝난 뒤의 재개는 새 세대로 진행한다.
         generationId &+= 1
         log("manual_takeover")
-        updatePhase(.fallbackRequired, message: "Opening browser for required action...")
+        updatePhase(.fallbackRequired, message: "필요한 작업을 위해 브라우저를 여는 중…")
+        promoteCurrentBrowserToVisible()
 
-        // Teardown hidden WebView and instantiate fresh visible WebView sharing website data store
-        destroyHiddenBrowser()
-        presentVisibleBrowser()
+        guard let config = activeConfig else { return }
+        if visibleWebView?.url == nil, let targetUrl = URL(string: config.initialUrl) {
+            visibleWebView?.load(URLRequest(url: targetUrl))
+        }
 
-        guard let config = activeConfig, let targetUrl = URL(string: config.initialUrl) else { return }
-        visibleWebView?.load(URLRequest(url: targetUrl))
+        // 로그인이나 보안 확인을 사용자가 마치면 같은 페이지와 첨부 상태에서 자동 실행을 재개한다.
+        // 이미 전송이 dispatch된 뒤라면 다시 채우거나 재전송하지 않고 관찰만 이어간다.
+        if submissionDispatched {
+            startObservationLoop(generation: generationId)
+        } else {
+            scheduleReadinessCheck(generation: generationId)
+        }
     }
 
-    // MARK: - Browser Lifecycle & Surface Helpers
+    // MARK: - Browser lifecycle
 
     private var activeWebView: WKWebView? {
         isVisibleBrowserPresented ? visibleWebView : hiddenWebView
@@ -1092,8 +809,8 @@ public final class AIBISession: NSObject, ObservableObject {
     private func mountHiddenBrowser(in parent: UIView) {
         guard hiddenWebView == nil else { return }
         let webView = WKWebView(frame: CGRect(x: 0, y: 0, width: 375, height: 667), configuration: webConfiguration)
-        // The host container is already mounted off-screen. Keep the WKWebView itself fully
-        // rendered so provider SPAs do not defer composer hydration because of near-zero alpha.
+        // 화면 밖 컨테이너가 이미 사용자에게 보이지 않게 한다. WebKit 자체를 투명하게 만들면
+        // 일부 SPA가 렌더링/수화 작업을 늦춰 작성기를 찾지 못할 수 있으므로 실제 표시 상태를 유지한다.
         webView.isOpaque = true
         webView.backgroundColor = .systemBackground
         webView.alpha = 1
@@ -1126,6 +843,25 @@ public final class AIBISession: NSObject, ObservableObject {
         self.isVisibleBrowserPresented = true
     }
 
+    /// 숨김 실행 중이던 바로 그 WebView를 보이는 시트로 넘긴다.
+    /// 새 페이지를 만들거나 다시 로드하면 로그인·첨부·작성기 상태가 사라져 seamless takeover가 깨진다.
+    private func promoteCurrentBrowserToVisible() {
+        if let hiddenWebView {
+            hiddenWebView.removeFromSuperview()
+            hiddenWebView.alpha = 1
+            hiddenWebView.isOpaque = true
+            hiddenWebView.backgroundColor = .systemBackground
+            hiddenWebView.isUserInteractionEnabled = true
+            hiddenWebView.accessibilityElementsHidden = false
+            hiddenWebView.frame = .zero
+            self.visibleWebView = hiddenWebView
+            self.hiddenWebView = nil
+        } else {
+            presentVisibleBrowser()
+        }
+        isVisibleBrowserPresented = true
+    }
+
     private func dismissVisibleBrowser() {
         self.isVisibleBrowserPresented = false
     }
@@ -1139,17 +875,13 @@ public final class AIBISession: NSObject, ObservableObject {
         isVisibleBrowserPresented = false
     }
 
-    // MARK: - JavaScript Evaluation & Runtime Injection
+    // MARK: - JS evaluation
 
     private func ensureRuntimeInjected(webView: WKWebView) async {
-        guard !runtimeJavaScript.isEmpty,
-              let url = webView.url,
-              let config = activeConfig,
+        guard !runtimeJavaScript.isEmpty, let url = webView.url, let config = activeConfig,
               originAllowed(url, in: config.allowedScriptOrigins) else { return }
         let checkScript = "typeof window.__AIBI_RUNTIME__ !== 'undefined'"
-        if let exists = try? await webView.evaluateJavaScript(checkScript) as? Bool, exists {
-            return
-        }
+        if let exists = try? await webView.evaluateJavaScript(checkScript) as? Bool, exists { return }
         _ = try? await webView.evaluateJavaScript(runtimeJavaScript)
         if let injected = try? await webView.evaluateJavaScript(checkScript) as? Bool, injected {
             runtimeInjectionFailureLogged = false
@@ -1162,13 +894,13 @@ public final class AIBISession: NSObject, ObservableObject {
     }
 
     private func evaluateScript(_ script: String, on webView: WKWebView) async throws -> String {
-        return try await withCheckedThrowingContinuation { continuation in
+        try await withCheckedThrowingContinuation { continuation in
             webView.evaluateJavaScript(script) { result, error in
-                if let error = error {
+                if let error {
                     continuation.resume(throwing: error)
                 } else if let str = result as? String {
                     continuation.resume(returning: str)
-                } else if let result = result {
+                } else if let result {
                     continuation.resume(returning: String(describing: result))
                 } else {
                     continuation.resume(returning: "")
@@ -1177,13 +909,16 @@ public final class AIBISession: NSObject, ObservableObject {
         }
     }
 
+    private func dismissHiddenBrowserInputUI() {
+        guard !isVisibleBrowserPresented, let webView = hiddenWebView else { return }
+        webView.endEditing(true)
+        webView.evaluateJavaScript("document.activeElement && document.activeElement.blur()")
+    }
+
     // MARK: - Utilities
 
     private func configJson(_ config: AIBIProviderConfig) -> String {
-        guard let data = try? JSONEncoder().encode(config),
-              let str = String(data: data, encoding: .utf8) else {
-            return "{}"
-        }
+        guard let data = try? JSONEncoder().encode(config), let str = String(data: data, encoding: .utf8) else { return "{}" }
         return str
     }
 
@@ -1193,14 +928,13 @@ public final class AIBISession: NSObject, ObservableObject {
     }
 
     private func escapeJsString(_ str: String) -> String {
-        return str
-            .replacingOccurrences(of: "\\", with: "\\\\")
+        str.replacingOccurrences(of: "\\", with: "\\\\")
             .replacingOccurrences(of: "'", with: "\\'")
             .replacingOccurrences(of: "\n", with: "\\n")
             .replacingOccurrences(of: "\r", with: "\\r")
     }
 
-    private func cleanOutputLocally(_ raw: String, providerId: String) -> String {
+    private func cleanOutputLocally(_ raw: String) -> String {
         var text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         if text.hasPrefix("```") && text.hasSuffix("```") {
             let lines = text.components(separatedBy: "\n")
@@ -1221,27 +955,21 @@ public final class AIBISession: NSObject, ObservableObject {
     }
 }
 
-// MARK: - WKNavigationDelegate Security & Origin Handling
+// MARK: - WKNavigationDelegate (origin security)
 
 extension AIBISession: WKNavigationDelegate {
-    public func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction, decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
-        // Provider uploaders and auxiliary UI can navigate child frames to about:, blob:, or
-        // provider CDN origins. Scripts are never injected there, so security-gate only the
-        // main-frame navigation.
+    func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction, decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
+        // 사진 업로더와 보조 UI의 child frame에는 AIBI 스크립트를 주입하지 않는다.
+        // about:/blob:/CDN frame 이동을 메인 ChatGPT 페이지 이탈로 오인하지 않는다.
         if navigationAction.targetFrame?.isMainFrame == false {
             decisionHandler(.allow)
             return
         }
-        guard let url = navigationAction.request.url,
-              let config = activeConfig else {
-            decisionHandler(.allow)
-            return
+        guard let url = navigationAction.request.url, let config = activeConfig else {
+            decisionHandler(.allow); return
         }
-
-        // Validate origin: allow provider script origins and visible auth origins
         let isScriptOrigin = originAllowed(url, in: config.allowedScriptOrigins)
         let isAuthOrigin = originAllowed(url, in: config.allowedAuthOrigins)
-
         if isScriptOrigin || isAuthOrigin {
             decisionHandler(.allow)
         } else {
@@ -1249,62 +977,45 @@ extension AIBISession: WKNavigationDelegate {
             if !isVisibleBrowserPresented {
                 escalateToVisible(reason: .navigationDisallowed)
             } else {
-                failWithError("This sign-in page is not in the allowed origin list.")
+                failWithError("허용되지 않은 로그인 페이지입니다.")
             }
         }
     }
 
-    public func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         // Stage only; the URL itself is never recorded.
         log("browser_loaded")
-        guard let url = webView.url,
-              let config = activeConfig,
-              originAllowed(url, in: config.allowedScriptOrigins) else { return }
-        Task { @MainActor in
-            await ensureRuntimeInjected(webView: webView)
-        }
+        guard let url = webView.url, let config = activeConfig, originAllowed(url, in: config.allowedScriptOrigins) else { return }
+        Task { @MainActor in await ensureRuntimeInjected(webView: webView) }
     }
 
-    public func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
-        handleNavError(error)
-    }
-
-    public func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
-        handleNavError(error)
-    }
+    func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) { handleNavError(error) }
+    func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) { handleNavError(error) }
 
     private func handleNavError(_ error: Error) {
         let nsError = error as NSError
-        // Ignore NSURLErrorCancelled (-999) from normal redirect handoffs
-        if nsError.domain == NSURLErrorDomain && nsError.code == NSURLErrorCancelled {
-            return
-        }
+        if nsError.domain == NSURLErrorDomain && nsError.code == NSURLErrorCancelled { return }
         log("browser_load_failed")
-        let sanitized = "Network error: \(nsError.localizedDescription)"
-        failWithError(sanitized)
+        failWithError("네트워크 오류: \(nsError.localizedDescription)")
     }
 }
 
-// MARK: - Public WebKit File Panel Bridge
+// MARK: - Native file panel bridge
 
 extension AIBISession: WKUIDelegate {
     @available(iOS 18.4, *)
-    public func webView(
-        _ webView: WKWebView,
-        runOpenPanelWith parameters: WKOpenPanelParameters,
-        initiatedByFrame frame: WKFrameInfo,
-        completionHandler: @escaping @MainActor @Sendable ([URL]?) -> Void
-    ) {
+    func webView(_ webView: WKWebView, runOpenPanelWith parameters: WKOpenPanelParameters, initiatedByFrame frame: WKFrameInfo, completionHandler: @escaping @MainActor @Sendable ([URL]?) -> Void) {
         let urls = pendingAttachmentURLs
         guard !urls.isEmpty, urls.count == 1 || parameters.allowsMultipleSelection else {
             if !urls.isEmpty {
                 log("attachment_input_missing", ["expected_count": urls.count, "input_count": 1])
             }
-            completionHandler(nil)
-            return
+            completionHandler(nil); return
         }
         nativeAttachmentPanelHandled = true
         log("attachment_dispatched", ["attached_count": urls.count])
+        // 원본 파일은 작업이 끝날 때까지(완료·실패·취소) 유지한다. ChatGPT는 프롬프트가 대화에
+        // 보인 뒤에도 파일을 계속 읽을 수 있으므로 여기서 미리 지우지 않는다.
         completionHandler(urls)
     }
 }

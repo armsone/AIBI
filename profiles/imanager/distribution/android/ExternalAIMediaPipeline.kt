@@ -1,4 +1,4 @@
-package com.armsone.starmanager.ui.externalai
+package com.armsone.imanagerai.ui.externalai
 
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory

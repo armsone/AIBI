@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "AIBI Provider Configurations",
-  "version": "1.1.0",
-  "updatedAt": "2026-08-28",
+  "version": "1.2.0",
+  "updatedAt": "2026-09-10",
   "volatilityNotice": "Web application DOM structures change frequently. Maintain and update these selector chains independently of core orchestrator logic.",
   "providers": {
     "gemini": {
@@ -228,7 +228,7 @@
       },
       "quirks": {
         "lateDomReplacement": true,
-        "notes": "ChatGPT frequently replaces the prompt-textarea DOM node during initial hydration. Its current mobile composer opens a nested plus menu; choose the visible Photos action before invoking the image file input. If fill verification fails, reset fill state and re-locate node."
+        "notes": "ChatGPT can replace the composer during hydration. Re-locate and fill only before dispatch. Choose Photos from the plus menu, count current-composer previews, and retain native source files through task completion. Dispatch once; after input consumption observe only. Empty input is pending, not verified response start. Never re-click a button that may now mean Stop or voice."
       }
     },
     "claude": {

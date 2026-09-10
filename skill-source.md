@@ -33,18 +33,22 @@ An AIBI integration is complete only when the target app delivers all applicable
 
 ## 1. Quick Resource Router
 
+### AIBI 0.5.0 submission and diagnostics
+
+Copy the platform's `AIBIDiagnosticsStore.swift` or `AIBIDiagnosticsStore.kt` alongside its engine. Add it to the host build and connect a user-initiated Settings share action. Use the runtime and provider registry from the same release. A Send gesture is claimed once; until ready only readiness checks may repeat, and after dispatch only observation may repeat. Never interpret an empty composer as verified generation. Diagnostic sharing contains fixed stages and bounded integers, never prompts, answers, media, URLs, credentials, or raw errors. The canonical contract and platform guides specify cancellation and sanitized export.
+
 Select the appropriate resource based on your implementation objective:
 
 | Implementation Goal | Primary Reference & Assets | Key Actions |
 |---|---|---|
 | **Adding AIBI to a New App** (Apple / Android) | • [Normative Core Contract](references/technical-contract.md)<br>• [Apple Adapter Guide](references/apple-platform-adapter.md) / [Android Adapter Guide](references/android-platform-adapter.md)<br>• [Host Integration Guide](references/host-integration-guide.md) | 1. Inspect app placement.<br>2. Copy & adapt [`assets/apple/AIBIEngine.swift`](assets/apple/AIBIEngine.swift) or [`assets/android/AIBIEngine.kt`](assets/android/AIBIEngine.kt).<br>3. Connect host result sink. |
-| **Android Parity with StarManager iPhone** | • [StarManager iPhone Reference Profile](references/starmanager-reference-profile.md)<br>• [Android Platform Adapter](references/android-platform-adapter.md)<br>• [`assets/android/AIBIEngine.kt`](assets/android/AIBIEngine.kt) | 1. Review the 17 verified iPhone behaviors.<br>2. Follow the 1:1 Android Parity Checklist.<br>3. Match UI progress row and timings. |
-| **Using the Verified StarManager Android Pattern** | • [StarManager Android Implementation Reference](references/starmanager-android-reference.md) | Reuse the tested file split and keep device/browser evidence explicitly separate from JVM/build verification. |
+| **Android Parity with iManager iPhone** | • [iManager iPhone Reference Profile](references/imanager-reference-profile.md)<br>• [Android Platform Adapter](references/android-platform-adapter.md)<br>• [`assets/android/AIBIEngine.kt`](assets/android/AIBIEngine.kt) | 1. Review the 17 verified iPhone behaviors.<br>2. Follow the 1:1 Android Parity Checklist.<br>3. Match UI progress row and timings. |
+| **Using the Verified iManager Android Pattern** | • [iManager Android Implementation Reference](references/imanager-android-reference.md) | Reuse the tested file split and keep device/browser evidence explicitly separate from JVM/build verification. |
 | **Updating DOM Selectors or Providers** | • [`assets/providers/aibi-providers.json`](assets/providers/aibi-providers.json)<br>• [`assets/runtime/aibi-browser-runtime.js`](assets/runtime/aibi-browser-runtime.js) | 1. Update semantic selector chains.<br>2. Verify quirks (Quill, ProseMirror, late hydration).<br>3. Keep core orchestrators untouched. |
 | **Adding Ordered Multi-Image Tasks** | • [Multi-Image Attachment Contract](references/media-attachments.md)<br>• [`assets/apple/AIBIMediaPipeline.swift`](assets/apple/AIBIMediaPipeline.swift) / [`assets/android/AIBIMediaPipeline.kt`](assets/android/AIBIMediaPipeline.kt) | 1. Snapshot up to the host limit (eight by default, twenty opt-in).<br>2. Normalize copies sequentially.<br>3. Require every provider preview before submission. |
 | **Responding to Provider UI/Result Drift** | • `/Users/armsone/git/AIBI/docs/provider-change-playbook.md` | 1. Identify the failed stage without logging private content.<br>2. Add sanitized state fixtures.<br>3. Change only the provider adapter where possible.<br>4. Verify hidden and visible device paths. |
 | **Updating Installed Host Apps** | • `/Users/armsone/git/AIBI/docs/distribution-and-updates.md`<br>• `/Users/armsone/git/AIBI/consumers/<host>.json` | 1. Update the canonical package and host distribution.<br>2. Increment the AIBI version.<br>3. Run conflict-safe sync.<br>4. Run the host verification gate and record its level. |
-| **Verifying & Testing an Integration** | • [Verification & Testing Reference](references/verification-and-testing.md) | 1. Run deterministic test scenarios T01–T13.<br>2. Audit logs for zero prompt/cookie leaks. |
+| **Verifying & Testing an Integration** | • [Verification & Testing Reference](references/verification-and-testing.md) | 1. Follow the user's permitted verification scope; run test scenarios only when testing is explicitly authorized.<br>2. Audit logs for zero prompt/cookie leaks. |
 
 ---
 
@@ -57,8 +61,8 @@ AIBI integrations are cleanly partitioned into three decoupled layers:
 | Layer 3: Host Application & Reference Profiles                          |
 |  - Host Composer, Provider Selector, Settings & Login UI                |
 |  - Host Result Sink & Domain Validation Hook (e.g. character count)     |
-|  - StarManager iPhone Reference Profile & Android Parity Checklist      |
-|  - References: host-integration-guide.md, starmanager-reference-profile.md |
+|  - iManager iPhone Reference Profile & Android Parity Checklist         |
+|  - References: host-integration-guide.md, imanager-reference-profile.md  |
 +-------------------------------------------------------------------------+
                                    │
                                    ▼

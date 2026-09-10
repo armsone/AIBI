@@ -9,7 +9,7 @@ ROOT = Path(__file__).resolve().parents[1]
 class AuthenticationContractTests(unittest.TestCase):
     def test_ios_probe_never_reuses_prompt_input_fallbacks_as_auth_evidence(self):
         source = (
-            ROOT / "profiles/starmanager/distribution/ios/ExternalAIBrowserView.swift"
+            ROOT / "profiles/imanager/distribution/ios/ExternalAIBrowserView.swift"
         ).read_text()
         probe = source.split("static func authStatusProbeScript", 1)[1].split(
             "private static func selectors", 1
@@ -34,10 +34,10 @@ class AuthenticationContractTests(unittest.TestCase):
     def test_android_probe_requires_visible_provider_specific_account_evidence(self):
         auth_status = (
             ROOT
-            / "profiles/starmanager/distribution/android/ExternalAIAuthStatus.kt"
+            / "profiles/imanager/distribution/android/ExternalAIAuthStatus.kt"
         ).read_text()
         scripts = (
-            ROOT / "profiles/starmanager/distribution/android/ExternalAIScripts.kt"
+            ROOT / "profiles/imanager/distribution/android/ExternalAIScripts.kt"
         ).read_text()
         auth_probe = scripts.split("fun checkAuthStatusScript", 1)[1].split(
             "// MARK: - 파싱 유틸리티", 1
@@ -64,7 +64,7 @@ class AuthenticationContractTests(unittest.TestCase):
             (ROOT / "fixtures/providers/gemini-authenticated-account-link.json").read_text()
         )
         scripts = (
-            ROOT / "profiles/starmanager/distribution/android/ExternalAIScripts.kt"
+            ROOT / "profiles/imanager/distribution/android/ExternalAIScripts.kt"
         ).read_text()
         provider_selectors = scripts.split("private fun providerSelectors", 1)[1]
         gemini = provider_selectors.split("DirectAIProvider.GEMINI ->", 1)[1].split(
@@ -91,10 +91,10 @@ class AuthenticationContractTests(unittest.TestCase):
             (ROOT / "fixtures/providers/chatgpt-authenticated-sidebar-account.json").read_text()
         )
         scripts = (
-            ROOT / "profiles/starmanager/distribution/android/ExternalAIScripts.kt"
+            ROOT / "profiles/imanager/distribution/android/ExternalAIScripts.kt"
         ).read_text()
         auth_status = (
-            ROOT / "profiles/starmanager/distribution/android/ExternalAIAuthStatus.kt"
+            ROOT / "profiles/imanager/distribution/android/ExternalAIAuthStatus.kt"
         ).read_text()
 
         self.assertTrue(fixture["sanitized"])
@@ -117,7 +117,7 @@ class AuthenticationContractTests(unittest.TestCase):
     def test_android_explicit_logout_remains_login_required_until_login_flow_starts(self):
         auth_status = (
             ROOT
-            / "profiles/starmanager/distribution/android/ExternalAIAuthStatus.kt"
+            / "profiles/imanager/distribution/android/ExternalAIAuthStatus.kt"
         ).read_text()
 
         self.assertIn("wasExplicitlyLoggedOut(context, provider)", auth_status)

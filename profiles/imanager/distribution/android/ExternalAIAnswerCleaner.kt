@@ -1,6 +1,6 @@
-package com.armsone.starmanager.ui.externalai
+package com.armsone.imanagerai.ui.externalai
 
-import com.armsone.starmanager.service.DirectAIProvider
+import com.armsone.imanagerai.service.DirectAIProvider
 
 /**
  * 외부 AI 응답 텍스트 정제기 (iPhone cleanedImportedAnswer 및 AIBI 규격과 1:1 일치).

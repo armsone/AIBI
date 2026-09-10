@@ -2,21 +2,22 @@
 
 `packages/` is the portable reference engine. `profiles/<host>/distribution/` contains the host-adapted files that are safe to install as whole files. `consumers/*.json` is the explicit allowlist connecting those files to app repositories.
 
-## StarManager
+## Stargram (iManager compatibility profile)
 
-StarManager is registered as the first consumer in `consumers/starmanager.json`.
+Stargram Apple and Android are registered in `consumers/imanager.json`; the profile identifier remains `imanager` for compatibility.
 
-- iOS currently receives one host-adapted runtime file. Its AIBI engine and StarManager UI are still monolithic, so the distribution snapshot deliberately lives under the StarManager profile rather than the portable package.
-- Android receives eight isolated engine, provider-runtime, security, cleaner, timing, and authentication-adapter files. Compose UI, `ComposerScreen`, and the host result sink remain app-owned and can never be overwritten by the sync tool.
+- Apple receives the host-adapted browser, media pipeline, and diagnostic store.
+- Android receives isolated runtime, media, security, cleaner, timing, authentication, and diagnostic adapters. Compose UI, `ComposerScreen`, and the host result sink remain app-owned and are not overwritten by the sync tool.
+- DenimDex Apple and Android retain their split native host engines; their runtime, providers and host-adapted diagnostic/session files are registered separately.
 
 ## Commands
 
 From the AIBI project root:
 
 ```sh
-python3 tools/aibi_sync.py status starmanager
-python3 tools/aibi_sync.py apply starmanager
-python3 tools/aibi_sync.py check starmanager
+python3 tools/aibi_sync.py status imanager
+python3 tools/aibi_sync.py apply imanager
+python3 tools/aibi_sync.py check imanager
 python3 tools/aibi_sync.py apply all
 ```
 
@@ -29,7 +30,7 @@ The first `apply` adopts an existing file only when it already equals the distri
 1. Change portable source in `packages/` and add the required sanitized fixture or device trace for provider changes.
 2. Port the change into each affected host distribution without adding host policy to `packages/`.
 3. Increment `aibi-version.json`.
-4. Run `python3 -m unittest discover -s tests` and `python3 tools/aibi_sync.py status starmanager`.
+4. Run `python3 tools/aibi_sync.py status all`. Run test suites only when the user explicitly authorizes testing; otherwise record that tests were not run.
 5. Run `apply`, then the verification command recorded for each repository in the consumer manifest.
 6. Run `check`; it must report every managed file as `current`.
 7. Record the verification level under `verification/` and synchronize the installed Codex AIBI skill.

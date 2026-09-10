@@ -1,6 +1,6 @@
-package com.armsone.starmanager.ui.externalai
+package com.armsone.imanagerai.ui.externalai
 
-import com.armsone.starmanager.service.DirectAIProvider
+import com.armsone.imanagerai.service.DirectAIProvider
 import java.net.URI
 
 /**

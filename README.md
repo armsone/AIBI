@@ -29,19 +29,21 @@ AIBI(AI Browser Interface)는 사용자가 공식 AI 웹사이트에 직접 로�
 - `docs/portable-contract.md`: 모든 앱이 지켜야 하는 공통 결과 계약
 - `docs/provider-change-playbook.md`: AI 웹 화면 변경에 대응하는 절차
 - `docs/media-attachments.md`: 최대 8장 자동 축소·원자적 첨부의 독립 계약과 이식 경계
-- `profiles/starmanager.md`: 스타매니저에만 해당하는 제품 요구
+- `profiles/imanager.md`: 아이매니저에만 해당하는 제품 요구
 - `skill-source.md`: Codex AIBI 스킬이 따라야 하는 작업 순서와 경계
 
 공통 엔진과 플랫폼별 미디어 파이프라인은 `packages/`, 개인정보를 제거한 provider 회귀 상태는 `fixtures/`에 있습니다. 설치된 Codex 스킬 `/Users/armsone/.codex/skills/aibi`는 이 기준 원본과 동기화합니다.
 
 ## 이식 앱 업데이트
 
-공통 참조 엔진은 `packages/`, 앱별 안전한 배포 단위는 `profiles/<host>/distribution/`, 설치 대상 allowlist는 `consumers/`에서 관리합니다. 현재 첫 소비자로 StarManager iOS·Android가 등록되어 있습니다.
+공통 참조 엔진은 `packages/`, 앱별 안전한 배포 단위는 `profiles/<host>/distribution/`, 설치 대상 allowlist는 `consumers/`에서 관리합니다. Stargram Apple·Android(`imanager` 호환 프로필)와 DenimDex Apple·Android가 등록되어 있습니다.
+
+0.5.0은 전송 한 번 실행 후 확인만 하는 방식, 전송 직전 작성창의 첨부 수 확인, 취소 후 작업 차단, 개인정보 없는 제한형 진단 JSON과 사용자 공유를 제공합니다. 실제 기기 확인 범위는 `verification/2026-09-10-submission-and-diagnostics.md`에 별도로 기록합니다.
 
 ```sh
-python3 tools/aibi_sync.py status starmanager
-python3 tools/aibi_sync.py apply starmanager
-python3 tools/aibi_sync.py check starmanager
+python3 tools/aibi_sync.py status imanager
+python3 tools/aibi_sync.py apply imanager
+python3 tools/aibi_sync.py check imanager
 python3 tools/aibi_sync.py apply all
 ```
 

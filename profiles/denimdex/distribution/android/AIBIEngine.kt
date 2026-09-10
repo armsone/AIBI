@@ -1,15 +1,4 @@
-/**
- * AIBIEngine.kt
- * AIBI — AI Browser Interface (Android Platform Reference)
- *
- * Platform: Android API 24+
- * Framework: Kotlin Coroutines, Android WebView, Jetpack Compose friendly
- * Description: Complete, copy-ready reference implementation of AIBI core orchestrator,
- *              lifecycle state machine, and Android WebView adapter.
- * Date: 2026-08-28
- */
-
-package com.aibi.core
+package com.armsone.denimdex.core.aibi
 
 import android.annotation.SuppressLint
 import android.content.ClipData
@@ -31,144 +20,12 @@ import org.json.JSONObject
 import java.io.File
 import java.util.UUID
 
-// MARK: - Core Enums & Data Models
-
-enum class AIBIPhase(val value: String) {
-    IDLE("IDLE"),
-    INITIALIZING("INITIALIZING"),
-    NAVIGATING("NAVIGATING"),
-    READY_CHECKING("READY_CHECKING"),
-    ATTACHING_MEDIA("ATTACHING_MEDIA"),
-    INJECTING_PROMPT("INJECTING_PROMPT"),
-    SUBMITTING("SUBMITTING"),
-    GENERATING("GENERATING"),
-    STABILIZING("STABILIZING"),
-    COMPLETED("COMPLETED"),
-    FALLBACK_REQUIRED("FALLBACK_REQUIRED"),
-    FAILED("FAILED"),
-    CANCELLED("CANCELLED")
-}
-
-enum class AIBIFallbackReason(val value: String) {
-    AUTH_REQUIRED("AUTH_REQUIRED"),
-    SECURITY_CHALLENGE_PRESENTED("SECURITY_CHALLENGE_PRESENTED"),
-    NAVIGATION_DISALLOWED("NAVIGATION_DISALLOWED"),
-    INPUT_NOT_FOUND("INPUT_NOT_FOUND"),
-    ATTACHMENT_FAILED("ATTACHMENT_FAILED"),
-    READINESS_TIMEOUT("READINESS_TIMEOUT"),
-    USER_INTERVENTION_REQUESTED("USER_INTERVENTION_REQUESTED")
-}
-
-enum class AIBIPresentationPreference(val value: String) {
-    ALWAYS_VISIBLE("ALWAYS_VISIBLE"),
-    VISIBLE_WHEN_NEEDED("VISIBLE_WHEN_NEEDED")
-}
-
-data class AIBITask(
-    val id: UUID = UUID.randomUUID(),
-    val providerId: String,
-    val promptText: String,
-    val attachments: List<AIBIMediaAttachment> = emptyList(),
-    val presentation: AIBIPresentationPreference = AIBIPresentationPreference.VISIBLE_WHEN_NEEDED,
-    val forceFill: Boolean = false
-)
-
-data class AIBIResult(
-    val taskId: UUID,
-    val providerId: String,
-    val rawText: String,
-    val cleanedText: String,
-    val isComplete: Boolean
-)
-
-data class AIBIProgress(
-    val phase: AIBIPhase,
-    val elapsedSeconds: Double,
-    val statusMessage: String,
-    val isWaiting: Boolean
-) {
-    companion object {
-        val initial = AIBIProgress(
-            phase = AIBIPhase.IDLE,
-            elapsedSeconds = 0.0,
-            statusMessage = "Ready",
-            isWaiting = false
-        )
-    }
-}
-
-// MARK: - Host Result Sink & Validator Hook
-
-interface AIBIResultSink {
-    /**
-     * Validates and commits the imported result to the host application.
-     * Return true on successful host commit; false retains browser for manual retry.
-     */
-    fun commitResult(result: AIBIResult): Result<Unit>
-}
-
-// MARK: - Provider Configuration Models
-
-data class AIBIProviderSelectors(
-    val promptInput: List<String>,
-    val submitButton: List<String>,
-    val stopButton: List<String>,
-    val assistantMessage: List<String>,
-    val preCode: List<String>? = null,
-    val errorBanner: List<String>,
-    val loginIndicator: List<String>,
-    val challengeIndicator: List<String>,
-    val attachmentInput: List<String> = emptyList(),
-    val attachmentTrigger: List<String> = emptyList(),
-    val attachmentMenuAction: List<String> = emptyList(),
-    val attachmentMenuActionText: List<String> = emptyList(),
-    val attachmentPreview: List<String> = emptyList()
-)
-
-data class AIBIMediaCapabilities(
-    val supportsImages: Boolean = false,
-    val maxImagesPerTask: Int = 0,
-    val requiresMultipleInputForBatch: Boolean = true
-)
-
-data class AIBIProviderConfig(
-    val id: String,
-    val displayName: String,
-    val initialUrl: String,
-    val allowedScriptOrigins: List<String>,
-    val allowedAuthOrigins: List<String>,
-    val selectors: AIBIProviderSelectors,
-    val mediaCapabilities: AIBIMediaCapabilities = AIBIMediaCapabilities()
-)
-
-// MARK: - Session Configuration & Timers Profile
-
-data class AIBITimingProfile(
-    val readinessTimeoutMs: Long = 35_000L,
-    val readinessCadenceMs: Long = 700L,
-    val maxReadinessMisses: Int = 12, // ~8.4s of consecutive misses
-    val attachmentTimeoutMs: Long = 30_000L,
-    val attachmentCadenceMs: Long = 350L,
-    val submitTimeoutMs: Long = 15_000L,
-    val submitCadenceMs: Long = 500L,
-    val submitVerificationDelayMs: Long = 700L,
-    val visibleAutoFillTimeoutMs: Long = 45_000L,
-    val observationCadenceMs: Long = 700L,
-    val stabilityRequiredTicks: Int = 2 // 3 matching consecutive observations (~1.4s)
-) {
-    companion object {
-        val default = AIBITimingProfile()
-    }
-}
-
-// MARK: - AIBISession (Core Orchestrator)
-
 class AIBISession(
     private val context: Context,
     private val runtimeJavaScript: String,
     private val scope: CoroutineScope = CoroutineScope(Dispatchers.Main + SupervisorJob()),
     val timingProfile: AIBITimingProfile = AIBITimingProfile.default,
-    val diagnosticsStore: AIBIDiagnosticsStore = AIBIDiagnosticsStore(context)
+    val diagnosticsStore: AIBIDiagnosticsStore = AIBIDiagnosticsStore.getInstance(context)
 ) {
     private val _currentPhase = MutableStateFlow(AIBIPhase.IDLE)
     val currentPhase: StateFlow<AIBIPhase> = _currentPhase.asStateFlow()
@@ -211,6 +68,15 @@ class AIBISession(
     private var currentRunId: String? = null
     private var stabilityText: String? = null
     private var stabilityTickCount = 0
+
+    init {
+        configureCookieManager()
+    }
+
+    private fun configureCookieManager() {
+        val cookieManager = CookieManager.getInstance()
+        cookieManager.setAcceptCookie(true)
+    }
 
     private fun recordDiagnostic(stage: String, metrics: Map<String, Int> = emptyMap()) {
         val runId = currentRunId ?: return
@@ -265,18 +131,6 @@ class AIBISession(
         } catch (_: Exception) {}
     }
 
-    init {
-        configureCookieManager()
-    }
-
-    private fun configureCookieManager() {
-        val cookieManager = CookieManager.getInstance()
-        cookieManager.setAcceptCookie(true)
-        // Third-party cookies can be enabled if required by provider sign-in
-    }
-
-    // MARK: - Public Task Entrypoints
-
     fun startTask(task: AIBITask, providerConfig: AIBIProviderConfig, parentViewGroup: ViewGroup? = null) {
         cancelCurrentTask()
 
@@ -313,7 +167,7 @@ class AIBISession(
             }
             val prepared = try {
                 withContext(Dispatchers.IO) {
-                    if (!isActive || generationId != currentGen) return@withContext null to emptyList()
+                    if (!isActive || generationId != currentGen) return@withContext null to emptyList<Uri>()
                     prepareNativeAttachmentBatch(task.attachments)
                 }
             } catch (_: Exception) {
@@ -340,7 +194,6 @@ class AIBISession(
             } else if (parentViewGroup != null) {
                 mountHiddenBrowser(parentViewGroup)
             } else {
-                // An unattached WebView is not a valid hidden automation surface.
                 presentVisibleBrowser()
             }
 
@@ -400,8 +253,6 @@ class AIBISession(
         updatePhase(AIBIPhase.IDLE, "Ready")
     }
 
-    // MARK: - State Machine Transitions & Timers
-
     private fun updatePhase(phase: AIBIPhase, message: String, isWaiting: Boolean = false) {
         _currentPhase.value = phase
         val elapsed = if (taskStartTimeMs > 0) (System.currentTimeMillis() - taskStartTimeMs) / 1000.0 else 0.0
@@ -436,8 +287,6 @@ class AIBISession(
         elapsedJob = null
     }
 
-    // MARK: - Readiness Phase
-
     private fun scheduleReadinessCheck(generation: Long) {
         activeJob?.cancel()
         consecutiveMisses = 0
@@ -462,18 +311,7 @@ class AIBISession(
         val webView = activeWebView ?: return
         ensureRuntimeInjected(webView)
 
-        val configJsonStr = JSONObject(mapOf(
-            "selectors" to JSONObject(mapOf(
-                "promptInput" to config.selectors.promptInput,
-                "submitButton" to config.selectors.submitButton,
-                "stopButton" to config.selectors.stopButton,
-                "assistantMessage" to config.selectors.assistantMessage,
-                "errorBanner" to config.selectors.errorBanner,
-                "loginIndicator" to config.selectors.loginIndicator,
-                "challengeIndicator" to config.selectors.challengeIndicator
-            ))
-        )).toString()
-
+        val configJsonStr = buildConfigJsonString(config)
         val script = "window.__AIBI_RUNTIME__.checkReadiness($configJsonStr)"
         val rawResult = evaluateScript(webView, script) ?: return
         if (!currentCoroutineContext().isActive || generationId != generation) return
@@ -521,8 +359,6 @@ class AIBISession(
         }
     }
 
-    // MARK: - Injection & Submission Phase
-
     private fun recordBaselineAndInject(generation: Long) {
         val config = activeConfig ?: return
         val webView = activeWebView ?: return
@@ -556,13 +392,54 @@ class AIBISession(
                 return@launch
             }
 
-            // Inject
-            val escapedPrompt = JSONObject.quote(task.promptText)
-            val injectScript = "window.__AIBI_RUNTIME__.injectPrompt($configJsonStr, $escapedPrompt, ${task.forceFill})"
-            val injectResult = evaluateScript(webView, injectScript)
             if (!isActive || generationId != generation) return@launch
 
-            if (injectResult != null && JSONObject(injectResult).optBoolean("success", false)) {
+            // Bounded prompt injection & persistence verification loop
+            val escapedPrompt = JSONObject.quote(task.promptText)
+            val maxAttempts = timingProfile.promptInjectionMaxAttempts
+            val retryDelayMs = timingProfile.promptInjectionRetryDelayMs
+
+            var attempt = 1
+            var injectionSucceeded = false
+
+            while (attempt <= maxAttempts && isActive && generationId == generation) {
+                val injectScript = "window.__AIBI_RUNTIME__.injectPrompt($configJsonStr, $escapedPrompt, ${task.forceFill})"
+                val rawInjectResult = evaluateScript(webView, injectScript)
+                if (!isActive || generationId != generation) return@launch
+
+                val injectResult = AIBIPromptInjectionClassifier.parseInjectionResult(rawInjectResult)
+
+                if (injectResult.errorCode == "EXISTING_TEXT_PRESERVED") {
+                    // Terminal: user text must never be overwritten or retried.
+                    failWithError("ChatGPT 입력창에 이미 다른 내용이 있어 자동 입력을 건너뛰었습니다. 직접 확인해주세요.")
+                    return@launch
+                }
+
+                val verifyResult = if (injectResult.isSuccess) {
+                    val verifyScript = "window.__AIBI_RUNTIME__.verifyPromptInjected($configJsonStr, $escapedPrompt)"
+                    val rawVerifyResult = evaluateScript(webView, verifyScript)
+                    if (!isActive || generationId != generation) return@launch
+                    AIBIPromptInjectionClassifier.parseVerifyResult(rawVerifyResult)
+                } else {
+                    null
+                }
+
+                val outcome = AIBIPromptInjectionClassifier.classify(injectResult, verifyResult)
+                if (outcome == AIBIPromptInjectionOutcome.SUCCESS_VERIFIED) {
+                    injectionSucceeded = true
+                    break
+                }
+
+                if (attempt < maxAttempts) {
+                    delay(retryDelayMs)
+                    if (!isActive || generationId != generation) return@launch
+                }
+                attempt++
+            }
+
+            if (!isActive || generationId != generation) return@launch
+
+            if (injectionSucceeded) {
                 recordDiagnostic("prompt_inserted", mapOf("prompt_length" to task.promptText.length, "prompt_present" to 1))
                 startSubmissionLoop(generation)
             } else {
@@ -602,8 +479,6 @@ class AIBISession(
                 "window.__AIBI_RUNTIME__.openAttachmentPanel($configJsonStr)"
             )
             if (!currentCoroutineContext().isActive || generationId != generation) return false
-            // Navigation can finish before the provider hydrates its attachment portal. Keep the
-            // browser hidden and retry instead of exposing the visible fallback immediately.
             if (panelResult == null || !parseRuntimeSuccess(panelResult)) {
                 delay(timingProfile.attachmentCadenceMs)
                 continue
@@ -804,8 +679,6 @@ class AIBISession(
         }
     }
 
-    // MARK: - Observation & Stability Phase
-
     private fun startObservationLoop(generation: Long) {
         activeJob?.cancel()
         stabilityText = null
@@ -905,19 +778,15 @@ class AIBISession(
         } catch (_: Exception) {}
     }
 
-    // MARK: - Completion & Fallback Handling
-
     private fun completeWithResult(result: AIBIResult) {
         drainActiveWebViewDiagnostics()
         stopAllJobs()
         _pendingResult.value = result
 
-        // 1. Copy to clipboard
         val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
         val clip = ClipData.newPlainText("AIBI Result", result.cleanedText)
         clipboard?.setPrimaryClip(clip)
 
-        // 2. Commit to host sink before dismissal
         val sink = resultSink
         if (sink != null) {
             val commitOutcome = sink.commitResult(result)
@@ -960,7 +829,6 @@ class AIBISession(
         stopAllJobs()
         updatePhase(AIBIPhase.FALLBACK_REQUIRED, "Opening browser for required action...")
 
-        // Teardown hidden WebView and instantiate fresh visible WebView sharing cookie store
         destroyHiddenBrowser()
         presentVisibleBrowser()
 
@@ -968,17 +836,19 @@ class AIBISession(
         visibleWebView?.loadUrl(config.initialUrl)
     }
 
-    // MARK: - Browser Lifecycle & Surface Helpers
-
-    private val activeWebView: WebView?
+    val activeWebView: WebView?
         get() = if (_isVisibleBrowserPresented.value) visibleWebView else hiddenWebView
 
     @SuppressLint("SetJavaScriptEnabled")
-    private fun mountHiddenBrowser(parent: ViewGroup?) {
+    private fun mountHiddenBrowser(parent: ViewGroup) {
         if (hiddenWebView != null) return
 
+        val density = context.resources.displayMetrics.density
+        val widthPx = (375 * density).toInt()
+        val heightPx = (667 * density).toInt()
+
         val webView = WebView(context).apply {
-            layoutParams = ViewGroup.LayoutParams(375, 667)
+            layoutParams = ViewGroup.LayoutParams(widthPx, heightPx)
             alpha = 0.001f
             importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
             isClickable = false
@@ -986,12 +856,14 @@ class AIBISession(
             settings.javaScriptEnabled = true
             settings.domStorageEnabled = true
             settings.databaseEnabled = true
+            settings.useWideViewPort = true
+            settings.loadWithOverviewMode = true
             webViewClient = createSecurityWebViewClient()
             webChromeClient = createAttachmentWebChromeClient()
         }
 
         hiddenWebView = webView
-        parent?.addView(webView)
+        parent.addView(webView)
     }
 
     private fun destroyHiddenBrowser() {
@@ -1006,26 +878,42 @@ class AIBISession(
     }
 
     @SuppressLint("SetJavaScriptEnabled")
-    private fun presentVisibleBrowser() {
+    fun presentVisibleBrowser() {
         if (visibleWebView == null) {
-            val webView = WebView(context).apply {
-                settings.javaScriptEnabled = true
-                settings.domStorageEnabled = true
-                settings.databaseEnabled = true
-                settings.setSupportMultipleWindows(true)
-                webViewClient = createSecurityWebViewClient()
-                webChromeClient = createAttachmentWebChromeClient(this)
+            val promoted = hiddenWebView
+            if (promoted != null) {
+                (promoted.parent as? ViewGroup)?.removeView(promoted)
+                promoted.alpha = 1f
+                promoted.isClickable = true
+                promoted.isFocusable = true
+                promoted.layoutParams = ViewGroup.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.MATCH_PARENT
+                )
+                visibleWebView = promoted
+                hiddenWebView = null
+            } else {
+                val webView = WebView(context).apply {
+                    settings.javaScriptEnabled = true
+                    settings.domStorageEnabled = true
+                    settings.databaseEnabled = true
+                    settings.useWideViewPort = true
+                    settings.loadWithOverviewMode = true
+                    settings.setSupportMultipleWindows(true)
+                    webViewClient = createSecurityWebViewClient()
+                    webChromeClient = createAttachmentWebChromeClient(this)
+                }
+                visibleWebView = webView
             }
-            visibleWebView = webView
         }
         _isVisibleBrowserPresented.value = true
     }
 
-    private fun dismissVisibleBrowser() {
+    fun dismissVisibleBrowser() {
         _isVisibleBrowserPresented.value = false
     }
 
-    private fun destroyVisibleBrowser() {
+    fun destroyVisibleBrowser() {
         visibleWebView?.apply {
             stopLoading()
             webViewClient = WebViewClient()

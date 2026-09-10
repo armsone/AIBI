@@ -1,6 +1,6 @@
 # Portable Multi-Image Attachment Capability
 
-This document defines the reusable AIBI media layer. It is not a StarManager screen or a
+This document defines the reusable AIBI media layer. It is not an iManager screen or a
 product-valuation policy.
 
 ## Portable outcome
