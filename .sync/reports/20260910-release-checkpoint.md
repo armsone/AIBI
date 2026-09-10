@@ -1,11 +1,11 @@
 # AIBI 0.5.0 five-project release checkpoint
 
-Status at 2026-09-10 17:08 KST: source ports, independent source review, four app Release builds and Git backups completed. Sequential public release stopped at the second project because Xcode could not find an App Store Connect account for team T7B4EPLHPK. This is not a five-project release-complete report.
+Status at 2026-09-10 20:35 KST: source ports, independent source review, four app Release builds and Git backups completed. After the representative signed into Xcode, the existing Stargram archive uploaded successfully at 20:32:23 KST (EXPORT SUCCEEDED, exit 0). The separate App Store Connect browser session still shows its login form, so TestFlight processing, group linkage and review remain unverified. Sequential public release is at the second project. This is not a five-project release-complete report.
 
 | Order | Project | Version | Current result |
 | --- | --- | --- | --- |
 | 1 | AIBI | 0.5.0 | GitHub release published; both asset digests match local archives |
-| 2 | Stargram Apple | 2.6.4 / 202609101649 | Archive, strict signature, data-preserving iPhone install and relaunch passed; TestFlight export blocked by account access |
+| 2 | Stargram Apple | 2.6.4 / 202609101649 | Archive, strict signature, data-preserving iPhone install and relaunch passed; upload succeeded; TestFlight group/review verification awaits separate web login |
 | 3 | Stargram Android | 2.6.4 / 363898 | Clean scoped release APK built; signer matches 2.6.1; public release waits for preceding step |
 | 4 | DenimDex Apple | 0.3.2 / 202609101658 | Archive and strict signature passed; iPhone install first timed out, paired-device refresh then retry could no longer locate device; upload waits |
 | 5 | DenimDex Android | 0.3.2 / 363902 | Release APK built and signed with the established release certificate; public release waits |
@@ -40,8 +40,8 @@ All five implementation commits are pushed. Stargram Android's unrelated existin
 
 ## Resume without rebuilding or repeating failures
 
-1. Representative reconnects an Apple account with App Store Connect access in Xcode Settings > Accounts and signs into App Store Connect in the opened browser. No credential, certificate, security or account change was performed by the agent.
-2. Retry the existing Stargram `xcodebuild -exportArchive` command with the archive above, `ExportOptions-TestFlight.plist`, export directory `build/Exports/Stargram-2.6.4-202609101649`, and `-allowProvisioningUpdates`. Previous result: `exportArchive Failed to Use Accounts`; detailed log: `Failed to find an account with App Store Connect access` for the existing team.
+1. Xcode account recovery is complete. Representative signs into App Store Connect in the opened browser; this is a separate web session. No credential, certificate, security or account change was performed by the agent.
+2. Do not upload Stargram again: the existing `xcodebuild -exportArchive` command with the archive above, `ExportOptions-TestFlight.plist`, export directory `build/Exports/Stargram-2.6.4-202609101649`, and `-allowProvisioningUpdates` succeeded at 20:32:23 KST. The earlier account-access error was resolved by the representative's Xcode login.
 3. Confirm processing, existing internal-group preservation, new build notes, existing Public Beta group linkage/review and public-link state. Do not equate upload with external beta availability.
 4. Publish Stargram Android APK, then DenimDex Apple through its existing ExportOptions.plist, then DenimDex Android APK. Keep the requested order.
 5. Reconnect designated Android devices and iPhone for remaining data-preserving install/runtime checks. No Android device or mDNS service was available. Do not auto-start an emulator or replace a differently signed installation by deleting data.
