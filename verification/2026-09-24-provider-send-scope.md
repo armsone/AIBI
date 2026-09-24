@@ -93,3 +93,11 @@ With that gate, Claude run 9234DDEE-8A9B-4B40-9E50-4A6EDB50B91C entered the requ
 The final scoped-history correction and removal of temporary broad DOM diagnostics passed the independent delta review. A permanent composer_reset event retains only five bounded readiness/count/error integers. The synchronized Apple 2.6.5 (202609242307) archive passed xcodebuild archive and strict code-signature verification; app, widget, and share extension have matching versions and iPhone/iPad device families. The final archived app was installed without deleting data. Relaunch was attempted but iOS refused because the phone was locked; no final relaunch success is claimed. Stargram commit 9cfd461 contains only the four authorized app files; unrelated user files remain excluded.
 
 The canonical iOS and Android distribution files match their consumer copies. Installed SKILL.md remains byte-identical to skill-source.md (SHA-256 2d3a38032e3e859f5f699bfe74dbe55778f7c2f74ed261dcf39eae0bab6bcc65). No new test suite was added or run. Final broad diagnostic fields and temporary helper references are absent.
+
+## 2026-09-25 00:00 KST — 중간 릴리즈 증거
+
+2026-09-25 00:00:31 KST 기준, AIBI `v0.5.1` 및 Android `v2.6.5` 공개 자산은 다운로드 후 해시 일치를 확인했습니다. Android 공개 APK(SHA-256 `f9754b243000cdbe48bfcc7150c252c67a25f2bb6d5ba53858becd3ff4290d1d`)를 SM-F968N에 `adb install -r`로 데이터 유지 교체 설치하여 `Success`를 확인했고, 공식 런처로 재실행한 뒤 설치 버전 `2.6.5`, `versionCode=384427`, 실행 프로세스 존재를 확인했습니다. 추가 AI 기능 시험은 수행하지 않았습니다. Apple Stargram `2.6.5` 빌드 `202609242307`은 내보내기·업로드가 성공하여 Apple 처리 중입니다. 이 기록은 TestFlight 공개 베타 승인·공개 완료나 홈페이지 반영 완료를 뜻하지 않습니다.
+
+## 2026-09-25 00:05 KST — Apple 외부 베타 심사 제출
+
+팀장이 App Store Connect 화면에서 Stargram `2.6.5` 빌드 `202609242307`의 처리 완료를 확인했습니다. 기존 내부 테스트 그룹의 9명을 유지하고 기존 Public Beta 그룹 8명을 연결하여 총 2개 그룹으로 표시됐습니다. 한국어 테스트 안내를 저장하고 자동 테스터 알림을 선택한 뒤 최종 `심사를 위해 제출`을 실행했습니다. 제출 후 상태는 `심사 대기 중`, 만료 안내는 `90일 후 만료`로 확인됐습니다. 2026-09-25 00:06 KST에 팀장이 기존 공개 초대 링크 `https://testflight.apple.com/join/nzmW4WxW`의 `Stargram 베타에 참여하기` 페이지와 `TestFlight에서 보기` 버튼을 확인했으며, 이용 불가 또는 정원 초과 안내는 없었습니다. 기존 공개 초대 링크의 사용 가능 여부 확인은 심사 대기 중인 새 `2.6.5` 빌드의 승인을 뜻하지 않습니다. 새 `2.6.5` 빌드는 아직 외부 베타 심사 승인 또는 공개 배포가 완료된 상태가 아니며, 이 기록은 Apple 릴리즈 전체 완료를 의미하지 않습니다.
