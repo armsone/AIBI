@@ -41,4 +41,4 @@
 - Android 배포 스냅샷: `profiles/imanager/distribution/android/`
 - 앱 고유 UI, 작성기 상태, 결과 sink는 배포 allowlist에 넣지 않습니다.
 - iOS는 현재 엔진과 호스트 UI가 한 파일에 섞여 있으므로 그 파일을 `host-adapted-runtime`으로 관리합니다. 공통 엔진으로 승격하기 전에는 이 스냅샷의 iManager 동작을 다른 앱의 기본값으로 사용하지 않습니다.
-- AIBI 0.5.1 유지보수 (Stargram 단독): Gemini·Claude 전송 시 enclosing form이 없으면 에디터 조상 컨테이너에서 고유한 가시적 시맨틱 전송 버튼을 탐색하며, document/body/html 대상 광범위 탐색 및 모호·비활성화 후보는 거부합니다. 첨부·1회 전송·취소 가드와 공통 런타임 및 DenimDex는 유지됩니다. iPhone 실기에서 단일 전송 및 결과 반영이 검증되었으며, Android는 소스 반영 후 실기기 동작이 미검증이며 빌드 상태는 별도 검증 기록을 참조합니다.
+- AIBI 0.5.1 유지보수 (Stargram 단독): Gemini·Claude 전송 시 enclosing form이 없으면 에디터 조상 컨테이너에서 고유한 가시적 시맨틱 전송 버튼을 탐색하며, document/body/html 대상 광범위 탐색 및 모호·비활성화 후보는 거부합니다. 첨부 미리보기 폴백은 현재 에디터와 고유 시맨틱 전송 버튼의 가장 가까운 공통 조상에서 시작하며 히스토리를 포함하는 범위와 document/body/html은 거부합니다. 기대하는 정확한 미리보기 수는 유지되고 중복되는 셀렉터 패밀리 간 카운트는 절대 합산하지 않습니다. 1회 전송·취소·전송 모호성 및 비활성화 가드와 공통 런타임 및 DenimDex는 유지됩니다. Android는 소스가 반영되었으나 실기기 동작은 미검증 상태입니다.

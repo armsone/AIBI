@@ -36,7 +36,7 @@ Claude implemented the Apple repair; Gemini implemented the corresponding Androi
 - Canonical Stargram distribution files and both consumer copies passed hash-based synchronization checks.
 - Installed SKILL.md is byte-identical to skill-source.md; all eight shared runtime/provider/platform assets match canonical source. Stargram reference notes were updated, including removal of obsolete multi-send and unlimited-observation guidance.
 - No test suite or test runner was created or executed. The live trace above documents the selector regression.
-- Other uncommitted user work is excluded from the repair commits. No TestFlight, public release, or website publication was requested or performed.
+- Other uncommitted user work is excluded from the repair commits. At the initial text-only internal completion, TestFlight, public release, and website publication had not been requested or performed. The later explicit release request and reopened image-plus-text work are recorded below.
 
 ## Final installed build: hidden execution
 
@@ -63,3 +63,33 @@ A subsequent visible request once stayed before browser loading for 90.448 secon
 - Stargram: 1df19e43aba963819250c8b254af37ad79c8f40b, pushed to origin/main.
 - Stargram Android: dc324de93c80435a0d1145c05eabfd953085a215, pushed to github/main.
 - AIBI: this record accompanies the host-adapter and skill-source repair commit on main.
+
+## Reopened: image plus request text (2026-09-24, later the same session)
+
+The user reported that Gemini and Claude attached a photo but did not enter the request text. Public upload had not started and is withheld pending repair and live confirmation of this path. The earlier text-only pass does not establish image-plus-text correctness.
+
+Privacy-safe user-run diagnostics showed one image prepared and dispatched for each failing provider, then preview_count 0 and prompt_length 0, with no send attempt. The same one-image ChatGPT flow recorded attachment_ready 1, prompt insertion, a request containing one image, and result application in 20.678 seconds.
+
+A diagnostic build reproduced the problem using the same selected photo and a synthetic request. Both providers reported no enclosing form, document-visible preview node union 2, old composer-scope preview count 0, and nearest preview-containing editor ancestor depth 7. Claude dispatched at 1.700 seconds and Gemini at 2.469 seconds. Neither entered the request text or sent it. The union value 2 can include different selector-family nodes for one image and must not be used as the actual image count.
+
+This confirms that the host attachment-completion gate is observing the wrong scope. The corrective work must retain per-family attachment counting, exact requested-count matching, cancellation, and one-shot dispatch, and must not count document-wide or old conversation images. Android has the same source-level scope restriction; its live behavior remains unverified without a device.
+
+A count-only candidate exposed a second contributing problem: visible-browser mode did not run the fresh-composer preparation used by hidden mode. A cancelled Claude draft therefore retained three preview tiles while the new request expected one, correctly blocking text insertion and dispatch. The repair also shares the current attachment root with reset and invokes preparation once before visible-mode automatic photo attachment; it does not waive the exact-count check. Verification remains in progress.
+
+The visible-browser candidate (2.6.5, build 202609242307) then completed Gemini with one photo: attachment_ready at 3.251 seconds, prompt_inserted at 3.353 seconds, one send at 3.416 seconds, and one result application at 12.687 seconds (run completed 12.690 seconds). The previously cancelled Gemini attachments did not accumulate. This is an image-plus-text live pass, not a text-only inference. Claude remained blocked before new attachment by three stale preview tiles because the initial scoped reset could not locate its remove buttons; no send occurred, and work continued on that reset boundary.
+
+## Android public release
+
+Android 2.6.5 (versionCode 384427, display build 202609242307) was built from an isolated checkout containing only this repair, reviewed independently, signed with the same certificate as the previous public APK, committed as dc64413d2a9ec265963cf0fc0de08e61ba56b163, and pushed to github/main. Published release: https://github.com/armsone/Stargram-Android/releases/tag/android-v2.6.5 . The downloaded public APK exactly matches SHA-256 f9754b243000cdbe48bfcc7150c252c67a25f2bb6d5ba53858becd3ff4290d1d. It is not a draft or prerelease. No Android physical-device pass is claimed; this limitation is included in the release notes. Apple image-plus-text recovery was still in progress at this publication point.
+
+## Apple preparation race and user confirmation
+
+A later trace isolated an additional race: the navigation-finished signal preceded the live composer. Reset returned root_present 0, reset_tiles 0, reset_clicks 0, reset_error 0, but a temporary count of zero had been accepted as successful preparation. Restored old attachments appeared after dispatch. The corrected gate requires a connected visible editor, a validated current composer root, successful reset, and zero remaining attachments; preparation retries are bounded and occur only before the first new attachment attempt.
+
+With that gate, Claude run 9234DDEE-8A9B-4B40-9E50-4A6EDB50B91C entered the request at 2.298 seconds, dispatched one send at 2.356 seconds, and observed generation at 2.939 seconds. The user subsequently reported that it appeared to work and explicitly asked to proceed with the release. A result_applied event was not present in the captured Claude trace, so end-to-end answer import is not claimed for this image run. Further repetitive functional trials were ended in accordance with that instruction. The final release also removes temporary broad DOM diagnostics and addresses the reviewed empty-composer/history distinction; this final delta is checked by source review and build.
+
+## Final Apple release candidate
+
+The final scoped-history correction and removal of temporary broad DOM diagnostics passed the independent delta review. A permanent composer_reset event retains only five bounded readiness/count/error integers. The synchronized Apple 2.6.5 (202609242307) archive passed xcodebuild archive and strict code-signature verification; app, widget, and share extension have matching versions and iPhone/iPad device families. The final archived app was installed without deleting data. Relaunch was attempted but iOS refused because the phone was locked; no final relaunch success is claimed. Stargram commit 9cfd461 contains only the four authorized app files; unrelated user files remain excluded.
+
+The canonical iOS and Android distribution files match their consumer copies. Installed SKILL.md remains byte-identical to skill-source.md (SHA-256 2d3a38032e3e859f5f699bfe74dbe55778f7c2f74ed261dcf39eae0bab6bcc65). No new test suite was added or run. Final broad diagnostic fields and temporary helper references are absent.

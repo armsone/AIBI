@@ -30,15 +30,84 @@ object ExternalAIScripts {
                     for(var j=0;j<all.length;j++) if(visible(all[j])) return all[j];
                 } return null;
             }
+            var allowAncestorSearch=$allowAncestorSearch;
             var input=firstVisible(${config.input});
             var composer=input && (input.closest('form') || input.closest('[data-testid="composer"]') || input.closest('[class*="composer"]'));
-            function attachmentCount() {
-                if(!composer) return 0;
-                var selectors=${config.attachmentConfirmed}, maximum=0;
+            var validatedFallback=false;
+            function findSendCandidates(root) {
+                if(!root) return [];
+                var selectors=${config.send}, candidates=[];
                 for(var i=0;i<selectors.length;i++) {
-                    var nodes=composer.querySelectorAll(selectors[i]);
-                    maximum=Math.max(maximum,Array.from(nodes).filter(visible).length);
-                } return maximum;
+                    try {
+                        var nodes=root.querySelectorAll(selectors[i]);
+                        for(var j=0;j<nodes.length;j++) {
+                            var el=nodes[j];
+                            if(candidates.indexOf(el)!==-1) continue;
+                            if(!visible(el)) continue;
+                            var label=[el.getAttribute('aria-label')||'',el.getAttribute('title')||'',el.getAttribute('data-testid')||'',el.getAttribute('data-test-id')||'',el.textContent||''].join(' ');
+                            if(/stop|중지|정지|voice|음성|dictat|받아쓰기/i.test(label)) continue;
+                            var hasMeaning=/send|submit|보내기|전송|제출/i.test(label) ||
+                                ($isGemini && el.classList && el.classList.contains('send-button'));
+                            if(!hasMeaning && $isClaude) {
+                                try { if(el.querySelector('svg[data-icon="paper-plane"]')) hasMeaning=true; } catch(_) {}
+                            }
+                            if(!hasMeaning) continue;
+                            candidates.push(el);
+                        }
+                    } catch(_) {}
+                }
+                return candidates;
+            }
+            function attachmentCount() {
+                validatedFallback=false;
+                var selectors=${config.attachmentConfirmed};
+                if(composer) {
+                    var maximum=0;
+                    for(var i=0;i<selectors.length;i++) {
+                        var nodes=composer.querySelectorAll(selectors[i]);
+                        maximum=Math.max(maximum,Array.from(nodes).filter(visible).length);
+                    }
+                    if(maximum>0) return maximum;
+                }
+                // Extend preview scope to nearest connected ancestor for form-less Gemini/Claude.
+                if(!allowAncestorSearch || !input || input.closest('form')) return 0;
+                var historySelector='model-response,message-content,user-query,[data-test-id="model-response"],[data-test-id="user-query"],[data-testid="transcript-row"],[data-testid*="conversation-turn"],[data-testid*="assistant"],[data-testid*="user-message"],.font-claude-message,.font-claude-response,.font-user-message,[data-message-author-role]';
+                var sharedAncestor=null;
+                var curr=input.parentElement;
+                while(curr && curr!==document.body && curr!==document.documentElement && curr.nodeType===1) {
+                    var candidates=findSendCandidates(curr);
+                    if(candidates.length>1) return 0;
+                    if(candidates.length===1) {
+                        sharedAncestor=curr;
+                        break;
+                    }
+                    curr=curr.parentElement;
+                }
+                if(!sharedAncestor) return 0;
+                var root=sharedAncestor;
+                while(root && root!==document.body && root!==document.documentElement && root.nodeType===1) {
+                    try {
+                        if((root.matches && root.matches(historySelector)) || root.querySelector(historySelector)) return 0;
+                    } catch(_) {}
+                    var currMax=0;
+                    for(var i=0;i<selectors.length;i++) {
+                        try {
+                            var nodes=root.querySelectorAll(selectors[i]);
+                            var count=0;
+                            for(var j=0;j<nodes.length;j++) {
+                                var el=nodes[j];
+                                if(visible(el)) count++;
+                            }
+                            currMax=Math.max(currMax,count);
+                        } catch(_) {}
+                    }
+                    if(currMax>0) {
+                        validatedFallback=true;
+                        return currMax;
+                    }
+                    root=root.parentElement;
+                }
+                return 0;
             }
             function sendButton() {
                 if(window.__sm_cancelled || window.__sm_submit_dispatched) return null;
@@ -60,26 +129,7 @@ object ExternalAIScripts {
                 if(!$allowAncestorSearch || !input || input.closest('form')) return null;
                 var curr=input.parentElement;
                 while(curr && curr!==document.body && curr!==document.documentElement && curr.nodeType===1) {
-                    var candidates=[];
-                    for(var i=0;i<selectors.length;i++) {
-                        try {
-                            var nodes=curr.querySelectorAll(selectors[i]);
-                            for(var j=0;j<nodes.length;j++) {
-                                var el=nodes[j];
-                                if(candidates.indexOf(el)!==-1) continue;
-                                if(!visible(el)) continue;
-                                var label=[el.getAttribute('aria-label')||'',el.getAttribute('title')||'',el.getAttribute('data-testid')||'',el.getAttribute('data-test-id')||'',el.textContent||''].join(' ');
-                                if(/stop|중지|정지|voice|음성|dictat|받아쓰기/i.test(label)) continue;
-                                var hasMeaning=/send|submit|보내기|전송|제출/i.test(label) ||
-                                    ($isGemini && el.classList && el.classList.contains('send-button'));
-                                if(!hasMeaning && $isClaude) {
-                                    try { if(el.querySelector('svg[data-icon="paper-plane"]')) hasMeaning=true; } catch(_) {}
-                                }
-                                if(!hasMeaning) continue;
-                                candidates.push(el);
-                            }
-                        } catch(_) {}
-                    }
+                    var candidates=findSendCandidates(curr);
                     if(candidates.length>1) return null;
                     if(candidates.length===1) {
                         var cand=candidates[0];
@@ -502,7 +552,7 @@ object ExternalAIScripts {
     fun checkAttachmentConfirmedScript(provider: DirectAIProvider, expectedCount: Int = 1): String = """
         (function(){${submissionHelpers(provider)}
         var count=attachmentCount();
-        return JSON.stringify({confirmed:!window.__sm_cancelled&&!!composer&&count===${expectedCount.coerceIn(0,20)},previewCount:count});})();
+        return JSON.stringify({confirmed:!window.__sm_cancelled&&(!!composer||(allowAncestorSearch&&!!input&&!input.closest('form')&&validatedFallback))&&count===${expectedCount.coerceIn(0,20)},previewCount:count});})();
     """.trimIndent()
 
     /** 현재 어시스턴트 메시지 기준선(baseline)을 페이지 JS 전역 상태에 기록하는 스크립트 */
