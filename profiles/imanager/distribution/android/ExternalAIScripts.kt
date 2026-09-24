@@ -15,6 +15,9 @@ object ExternalAIScripts {
 
     private fun submissionHelpers(provider: DirectAIProvider): String {
         val config = providerSelectors(provider)
+        val allowAncestorSearch = provider == DirectAIProvider.GEMINI || provider == DirectAIProvider.CLAUDE
+        val isGemini = provider == DirectAIProvider.GEMINI
+        val isClaude = provider == DirectAIProvider.CLAUDE
         return """
             function visible(el) {
                 if (!el) return false;
@@ -38,19 +41,54 @@ object ExternalAIScripts {
                 } return maximum;
             }
             function sendButton() {
-                if(!composer || window.__sm_cancelled || window.__sm_submit_dispatched) return null;
+                if(window.__sm_cancelled || window.__sm_submit_dispatched) return null;
                 var expected=window.__sm_expected_attachments||0;
                 if(expected>0 && attachmentCount()!==expected) return null;
                 var selectors=${config.send};
-                for(var i=0;i<selectors.length;i++) {
-                    var nodes=composer.querySelectorAll(selectors[i]);
-                    for(var j=0;j<nodes.length;j++) {
-                        var b=nodes[j], label=[b.getAttribute('aria-label'),b.getAttribute('title'),b.getAttribute('data-testid'),b.textContent].join(' ');
-                        if(/stop|중지|정지|voice|음성|dictat|받아쓰기/i.test(label)) continue;
-                        if(!/send|submit|보내기|전송|제출/i.test(label)) continue;
-                        if(visible(b)&&!b.disabled&&b.getAttribute('aria-disabled')!=='true') return b;
+                if(composer) {
+                    for(var i=0;i<selectors.length;i++) {
+                        var nodes=composer.querySelectorAll(selectors[i]);
+                        for(var j=0;j<nodes.length;j++) {
+                            var b=nodes[j], label=[b.getAttribute('aria-label'),b.getAttribute('title'),b.getAttribute('data-testid'),b.textContent].join(' ');
+                            if(/stop|중지|정지|voice|음성|dictat|받아쓰기/i.test(label)) continue;
+                            if(!/send|submit|보내기|전송|제출/i.test(label)) continue;
+                            if(visible(b)&&!b.disabled&&b.getAttribute('aria-disabled')!=='true') return b;
+                        }
                     }
-                } return null;
+                }
+                // Ancestor fallback allowed only when enclosing form is absent.
+                if(!$allowAncestorSearch || !input || input.closest('form')) return null;
+                var curr=input.parentElement;
+                while(curr && curr!==document.body && curr!==document.documentElement && curr.nodeType===1) {
+                    var candidates=[];
+                    for(var i=0;i<selectors.length;i++) {
+                        try {
+                            var nodes=curr.querySelectorAll(selectors[i]);
+                            for(var j=0;j<nodes.length;j++) {
+                                var el=nodes[j];
+                                if(candidates.indexOf(el)!==-1) continue;
+                                if(!visible(el)) continue;
+                                var label=[el.getAttribute('aria-label')||'',el.getAttribute('title')||'',el.getAttribute('data-testid')||'',el.getAttribute('data-test-id')||'',el.textContent||''].join(' ');
+                                if(/stop|중지|정지|voice|음성|dictat|받아쓰기/i.test(label)) continue;
+                                var hasMeaning=/send|submit|보내기|전송|제출/i.test(label) ||
+                                    ($isGemini && el.classList && el.classList.contains('send-button'));
+                                if(!hasMeaning && $isClaude) {
+                                    try { if(el.querySelector('svg[data-icon="paper-plane"]')) hasMeaning=true; } catch(_) {}
+                                }
+                                if(!hasMeaning) continue;
+                                candidates.push(el);
+                            }
+                        } catch(_) {}
+                    }
+                    if(candidates.length>1) return null;
+                    if(candidates.length===1) {
+                        var cand=candidates[0];
+                        if(cand.disabled || cand.getAttribute('aria-disabled')==='true') return null;
+                        return cand;
+                    }
+                    curr=curr.parentElement;
+                }
+                return null;
             }
         """.trimIndent()
     }

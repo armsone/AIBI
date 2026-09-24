@@ -121,7 +121,7 @@ class ExternalAIDiagnosticsStore(context: Context) {
     }
 
     companion object {
-        const val ADAPTER_VERSION = "0.5.0"
+        const val ADAPTER_VERSION = "0.5.1"
         private val providers = setOf("chatgpt", "gemini", "claude", "grok", "kimi", "perplexity", "unknown")
         private val stages = setOf(
             "run_started", "media_preparation_started", "media_prepared", "media_preparation_failed",
