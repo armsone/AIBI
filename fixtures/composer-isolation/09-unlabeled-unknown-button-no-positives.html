@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Composer Isolation Fixture 09 - Unlabeled Unknown Button, No Positive Semantics</title>
+</head>
+<body>
+
+  <!-- Synthetic sanitized fixture. No real prompts/answers/private content. -->
+  <!-- Scenario: Unlabeled unknown button with no positive send proof -> null -->
+  <!-- Uses the real Claude registry promptInput selector 'fieldset div[contenteditable="true"]' -->
+  <!-- (packages/providers/aibi-providers.json -> providers.claude.selectors.promptInput) and the -->
+  <!-- real Claude registry submitButton selector "fieldset button[type='button']:not([disabled])" -->
+  <!-- so the lone generic-action-btn below IS matched into the candidate pool by the selector query -->
+  <!-- itself (unlike selector-level exclusion), and must then be rejected by the runtime's positive- -->
+  <!-- semantic filter (no "Send"/"전송" label, no aria-label, no paper-plane icon) -> sendButton null. -->
+  <fieldset class="composer-fieldset" role="group" aria-label="Claude composer">
+    <div class="ProseMirror" contenteditable="true" role="textbox" aria-label="Write your prompt">Enter prompt here...</div>
+    <div class="actions">
+      <!-- Matches fieldset button[type='button']:not([disabled]) exactly; no positive send semantic -->
+      <button type="button" class="generic-action-btn">
+        <svg class="icon-sparkle"></svg>
+      </button>
+    </div>
+  </fieldset>
+
+</body>
+</html>

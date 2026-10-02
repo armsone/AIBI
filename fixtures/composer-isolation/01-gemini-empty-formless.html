@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Composer Isolation Fixture 01 - Gemini Empty Formless Composer</title>
+</head>
+<body>
+
+  <!-- Synthetic sanitized fixture. No real prompts/answers/private content. -->
+  <!-- Scenario: Empty Formless Gemini Composer (Send button absent when empty) -->
+  <div id="fixture-gemini-empty-formless">
+    <div class="chat-container">
+      <div class="conversation-history">
+        <!-- Prior turn with assistant response -->
+        <model-response>
+          <div class="markdown">Hello! How can I help you today?</div>
+        </model-response>
+      </div>
+      <!-- Formless composer container -->
+      <div class="composer-container" role="region" aria-label="Prompt composer">
+        <div class="attachment-previews-area">
+          <!-- 0 previews initially -->
+        </div>
+        <div class="input-area">
+          <rich-textarea>
+            <div class="ql-editor" contenteditable="true" role="textbox" aria-label="프롬프트 입력"></div>
+          </rich-textarea>
+        </div>
+        <div class="action-bar">
+          <button type="button" aria-label="파일 추가" class="attach-btn">Attach</button>
+          <input type="file" accept="image/*" multiple style="display:none;" />
+          <!-- Send button omitted dynamically by provider DOM when empty -->
+        </div>
+      </div>
+    </div>
+  </div>
+
+</body>
+</html>

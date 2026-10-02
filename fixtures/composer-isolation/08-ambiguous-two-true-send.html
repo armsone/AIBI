@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Composer Isolation Fixture 08 - Ambiguous Two True Send Candidates</title>
+</head>
+<body>
+
+  <!-- Synthetic sanitized fixture. No real prompts/answers/private content. -->
+  <!-- Scenario: Ambiguous two true send candidates at same priority level -->
+  <div id="fixture-ambiguous-two-true-send">
+    <fieldset class="composer-fieldset" role="group" aria-label="Message composer">
+      <div class="prosemirror-wrapper">
+        <div class="ProseMirror" contenteditable="true" role="textbox">Ambiguous action</div>
+      </div>
+      <div class="controls-row">
+        <!-- Two distinct buttons both having explicit positive send semantics -->
+        <button type="button" aria-label="Send now" class="send-btn-1">
+          <svg data-icon="paper-plane"></svg>
+        </button>
+        <button type="button" aria-label="Send with reasoning" class="send-btn-2">
+          <svg data-icon="paper-plane"></svg>
+        </button>
+      </div>
+    </fieldset>
+  </div>
+
+</body>
+</html>

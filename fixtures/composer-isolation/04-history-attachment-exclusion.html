@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Composer Isolation Fixture 04 - Prior History Attachment Exclusion</title>
+</head>
+<body>
+
+  <!-- Synthetic sanitized fixture. No real prompts/answers/private content. -->
+  <!-- Scenario: Prior History Attachment Exclusion -->
+  <div id="fixture-history-attachment-exclusion">
+    <div class="chat-layout">
+      <!-- Conversation history with prior user upload thumbnails -->
+      <div class="history-stream">
+        <div data-testid="conversation-turn">
+          <div data-testid="user-message">
+            <span>Look at this older image:</span>
+            <!-- History thumbnail that must NOT be counted in current composer attachmentCount -->
+            <div data-testid="file-thumbnail" class="attachment-tile">
+              <img src="blob:sanitized-old-image" alt="Uploaded image" />
+              <button aria-label="Remove attachment">Remove</button>
+            </div>
+            <div data-test-id="model-response">
+              <div class="markdown">I received your previous picture.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <!-- Current active composer with exactly 1 new staged attachment -->
+      <form class="current-composer-form" data-testid="composer">
+        <div class="current-attachment-tray">
+          <div data-testid="file-thumbnail" class="attachment-tile">
+            <img src="blob:sanitized-new-image" alt="Uploaded image" />
+            <button aria-label="Remove attachment">Remove</button>
+          </div>
+        </div>
+        <div class="editor-row">
+          <!-- aria-label contains "prompt" to match the Gemini registry promptInput selector
+               textarea[aria-label*='prompt' i] exactly (not a fixture-only override). -->
+          <textarea class="prompt-input" aria-label="Prompt input" placeholder="Type a message..."></textarea>
+        </div>
+        <div class="button-row">
+          <button type="submit" aria-label="Send Message" data-testid="send-button">Send</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+</body>
+</html>

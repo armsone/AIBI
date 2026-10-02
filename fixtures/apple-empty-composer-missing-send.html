@@ -1,0 +1,30 @@
+<!--
+sanitized: true
+provider-class: gemini-claude-formless (allowsAncestorSendSearch)
+scenario: composer freshly reset, zero text, zero attachments, no send button rendered
+covers: ExternalAIBrowserScripts.attachmentScope() missing/hidden-send fallback
+expected:
+  - sendButton() returns null (no visible candidate matches sendSelectors or ancestorSendButton())
+  - attachmentScope() does NOT return null merely because the send button is absent
+  - attachmentScope() falls back to composerScope() (the 3-ancestor-up node), because that
+    node does not match historySelectors and is not document/document.body/document.documentElement
+  - countAttachmentsIn(result) === 0 (no attachment tiles exist yet in this state)
+no prompt text, answer text, account identifier, cookie, token, or photo content is present in this fixture.
+-->
+<html>
+  <body>
+    <div id="app-shell">
+      <div id="chat-surface">
+        <!-- composerScope(): input.parentElement.parentElement.parentElement -->
+        <div class="composer-ancestor-3">
+          <div class="composer-ancestor-2">
+            <div class="composer-ancestor-1">
+              <div contenteditable="true" data-testid="prompt-editor" aria-label="Prompt"></div>
+            </div>
+          </div>
+          <!-- no button[aria-label*="send"] exists anywhere under composer-ancestor-3 in this state -->
+        </div>
+      </div>
+    </div>
+  </body>
+</html>

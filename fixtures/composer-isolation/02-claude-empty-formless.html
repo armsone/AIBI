@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Composer Isolation Fixture 02 - Claude Empty Formless Composer</title>
+</head>
+<body>
+
+  <!-- Synthetic sanitized fixture. No real prompts/answers/private content. -->
+  <!-- Scenario: Empty Formless Claude Composer (Send button absent when empty) -->
+  <div id="fixture-claude-empty-formless">
+    <div class="claude-chat">
+      <div class="transcript-container" data-testid="transcript-row">
+        <div class="font-claude-response">
+          <div class="font-claude-response-body standard-markdown">Prior completed assistant turn</div>
+        </div>
+      </div>
+      <!-- Formless composer container with fieldset -->
+      <fieldset class="composer-fieldset" role="group" aria-label="Message composer">
+        <div class="previews-row">
+          <!-- 0 previews initially -->
+        </div>
+        <div class="prosemirror-wrapper">
+          <div class="ProseMirror" contenteditable="true" role="textbox" data-placeholder="Reply to Claude..."></div>
+        </div>
+        <div class="controls-row">
+          <button type="button" aria-label="Attach files">Upload</button>
+          <input type="file" accept="image/*" multiple style="display:none;" />
+          <!-- Send button is absent when prompt and attachments are empty -->
+        </div>
+      </fieldset>
+    </div>
+  </div>
+
+</body>
+</html>

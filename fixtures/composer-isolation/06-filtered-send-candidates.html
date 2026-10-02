@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Composer Isolation Fixture 06 - Voice/Stop/Dictation Candidate Filtering</title>
+</head>
+<body>
+
+  <!-- Synthetic sanitized fixture. No real prompts/answers/private content. -->
+  <!-- Scenario: Voice / Stop / Dictation Candidate Filtering -->
+  <div id="fixture-filtered-send-candidates">
+    <form class="control-composer" data-testid="composer">
+      <!-- aria-label contains "prompt" to match the Gemini registry promptInput selector
+           textarea[aria-label*='prompt' i] exactly (not a fixture-only override). -->
+      <textarea class="prompt-input" aria-label="Prompt input" placeholder="Write something...">Hello AI</textarea>
+      <!-- Fixture-only submitButton override: '.button-group button' (none of the Gemini/Claude
+           registry submitButton selectors match a bare aria-label="voice mode" or "음성 받아쓰기"
+           button, so the registry query alone would already exclude them -- that would test
+           selector exclusion, not the runtime's negative-label filter). The broad override admits
+           all three buttons into the candidate pool so the runtime's /voice|음성|dictat|받아쓰기/
+           label filter is what performs the exclusion, leaving exactly one candidate. -->
+      <div class="button-group">
+        <button type="button" aria-label="voice mode" data-testid="voice-button">Voice</button>
+        <button type="button" aria-label="음성 받아쓰기" data-testid="dictation-button">Dictate</button>
+        <!-- Single legitimate send button; also an exact Gemini registry match via
+             button[aria-label*='보내기' i] independent of the override above. -->
+        <button type="submit" aria-label="보내기" data-testid="send-button">Send</button>
+      </div>
+    </form>
+  </div>
+
+</body>
+</html>

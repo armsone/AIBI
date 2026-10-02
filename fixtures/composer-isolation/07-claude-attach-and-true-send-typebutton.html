@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Composer Isolation Fixture 07 - Claude Attach + True Send type=button</title>
+</head>
+<body>
+
+  <!-- Synthetic sanitized fixture. No real prompts/answers/private content. -->
+  <!-- Scenario: Claude Composer with Attach files + true send type='button' -->
+  <div id="fixture-claude-attach-and-true-send-typebutton">
+    <fieldset class="composer-fieldset" role="group" aria-label="Message composer">
+      <div class="prosemirror-wrapper">
+        <div class="ProseMirror" contenteditable="true" role="textbox">Review this code</div>
+      </div>
+      <div class="controls-row">
+        <!-- Broad selector 'fieldset button[type=button]:not([disabled])' matches both -->
+        <!-- 'Attach files' button must be excluded by attach/upload negative semantic filter -->
+        <button type="button" aria-label="Attach files" class="claude-attach-btn">
+          <svg class="paperclip-icon" data-icon="paperclip"></svg>
+        </button>
+        <input type="file" accept="image/*" multiple style="display:none;" />
+        <!-- True send button with type='button' and positive semantic paper-plane SVG -->
+        <button type="button" aria-label="Send Message" class="claude-send-btn">
+          <svg class="send-icon" data-icon="paper-plane"></svg>
+        </button>
+      </div>
+    </fieldset>
+  </div>
+
+</body>
+</html>

@@ -1,0 +1,84 @@
+<!--
+sanitized: true
+provider-class: gemini-claude-formless (allowsAncestorSendSearch)
+scenario-config: Each test scenario is isolated in an independent iframe srcdoc document.
+                 This ensures queryFirst(inputSelectors) executes cleanly per scenario without cross-document interference.
+covers:
+  - ExternalAIBrowserScripts.composerScope() and attachmentScope() behavior in Apple adapter (ExternalAIBrowserView.swift).
+  - composerScope() uses `input.closest('form') || input.parentElement?.parentElement?.parentElement`.
+  - Scenario A: Shallow DOM where parent3 reaches <body> / <html>.
+    attachmentScope() root boundary guard (`scope === document || scope === document.body || scope === document.documentElement`)
+    and resetComposerScript safeRoot guard (`node.tagName === 'BODY' || node.tagName === 'HTML'`) reject it and return null.
+  - Scenario B: Scope containing conversation history (`historySelectors` including .font-user-message or assistant selectors).
+    attachmentScope() containsHistory(scope) guard rejects it and returns null.
+synthetic: true
+physical-device-evidence: false
+-->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Apple Empty Composer Root Boundary Scenarios</title>
+</head>
+<body>
+  <h1>Apple Empty Composer Root Boundary Scenarios</h1>
+  <p>Synthetic HTML fixture demonstrating boundary isolation via independent iframe srcdoc documents.</p>
+
+  <!-- Scenario A: Shallow hierarchy where 3-ancestor climb reaches document.body or document.documentElement -->
+  <section id="scenario-a-section">
+    <h2>Scenario A: parent3 reaches body / document boundary</h2>
+    <!--
+      Selection spec:
+        - prompt-editor selector matches: div[contenteditable="true"]
+        - input.parentElement = div.wrapper-1
+        - input.parentElement.parentElement = document.body
+        - input.parentElement.parentElement.parentElement = document.documentElement
+      Expected result:
+        - composerScope(): returns document.documentElement (or document.body if 2-ancestor climb)
+        - attachmentScope(): rejected by `scope === document.body || scope === document.documentElement`, returns null
+        - safeRoot(attachmentScope()): returns null
+        - prepareFreshComposer(): root_present === 0, returns false
+    -->
+    <iframe id="iframe-scenario-a" title="Scenario A: Shallow DOM reaching document boundary" srcdoc="<!DOCTYPE html>
+<html>
+  <body id=&quot;scenario-a-body&quot;>
+    <div class=&quot;wrapper-1&quot;>
+      <div contenteditable=&quot;true&quot; class=&quot;ql-editor&quot; aria-label=&quot;프롬프트&quot;></div>
+    </div>
+  </body>
+</html>"></iframe>
+  </section>
+
+  <!-- Scenario B: composerScope() contains prior conversation history -->
+  <section id="scenario-b-section">
+    <h2>Scenario B: composerScope contains conversation history</h2>
+    <!--
+      Selection spec:
+        - prompt-editor selector matches: div[contenteditable="true"]
+        - composerScope(): input.parentElement.parentElement.parentElement (= div.composer-container)
+        - history element present: model-response (Gemini) / div.font-claude-message (Claude) / .font-user-message
+      Expected result:
+        - containsHistory(scope): returns true
+        - attachmentScope(): rejected by containsHistory(scope) guard, returns null
+        - safeRoot(attachmentScope()): returns null
+        - prepareFreshComposer(): root_present === 0, returns false
+    -->
+    <iframe id="iframe-scenario-b" title="Scenario B: History boundary case" srcdoc="<!DOCTYPE html>
+<html>
+  <body id=&quot;scenario-b-body&quot;>
+    <div id=&quot;app-shell&quot;>
+      <div class=&quot;composer-container&quot;>
+        <!-- prior turn present inside the 3-ancestor boundary -->
+        <model-response><div class=&quot;markdown&quot;>Previous answer</div></model-response>
+        <div class=&quot;composer-ancestor-2&quot;>
+          <div class=&quot;composer-ancestor-1&quot;>
+            <div contenteditable=&quot;true&quot; class=&quot;ql-editor&quot; aria-label=&quot;프롬프트&quot;></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </body>
+</html>"></iframe>
+  </section>
+</body>
+</html>

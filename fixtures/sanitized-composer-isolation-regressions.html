@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Sanitized Composer Isolation Regression Fixtures - Index</title>
+</head>
+<body>
+
+<h1>Sanitized Composer Isolation Regression Fixtures</h1>
+
+<p>
+  This file is an index only. Each regression scenario below previously lived
+  as one `&lt;div&gt;` section inside a single shared document, which meant a
+  DOM query such as `queryFirst` would resolve against the first matching
+  element across all scenarios rather than the one under test. Each scenario
+  has been split into its own standalone, sanitized HTML document under
+  <code>fixtures/composer-isolation/</code> so it can be loaded in isolation
+  as its own full-page `document`. Source-only: no execution, DOM evaluation,
+  or screenshot capture has been performed against these files. All content
+  is synthetic placeholder markup; no real prompts, answers, or private
+  content appear anywhere in these fixtures.
+</p>
+
+<h2>Loading / Config Selection Instructions</h2>
+<ol>
+  <li>
+    Load exactly one fixture file at a time as the full-page `document`
+    (e.g. open the file directly in a browser tab, or set it as the page
+    content of a single isolated test context). Do not concatenate or embed
+    multiple fixture files into one page, since this would reintroduce the
+    same cross-scenario query collisions these fixtures were split to avoid.
+  </li>
+  <li>
+    Select the provider config matching the fixture's provider prefix:
+    <code>packages/providers/aibi-providers.json</code> &rarr; <code>providers.gemini.selectors</code>
+    for Gemini-prefixed fixtures, <code>providers.claude.selectors</code> for
+    Claude-prefixed fixtures. Fixtures without a provider prefix (03, 04, 05,
+    06, 08, 09) are provider-neutral boundary/ambiguity cases. Each of these
+    does <strong>not</strong> get evaluated against "either provider" loosely;
+    instead each one specifies, in its row below, the exact registry selector
+    it matches (Gemini or Claude, cited verbatim from
+    <code>aibi-providers.json</code>) and/or an explicit fixture-only
+    <code>promptInput</code>/<code>submitButton</code> override where no
+    registry selector matches the fixture's plain markup. Fixture-only
+    overrides are config overrides scoped to that single fixture's evaluation
+    only; they are not proposed changes to <code>aibi-providers.json</code>
+    or the shared runtime.
+  </li>
+  <li>
+    Resolve <code>promptInput</code> first using the selected config's
+    <code>selectors.promptInput</code> list, then derive
+    <code>composerRoot</code>, <code>attachmentCount</code>, and
+    <code>sendButton</code> from that single document per the shared runtime
+    contract in <code>packages/runtime/aibi-browser-runtime.js</code>.
+  </li>
+</ol>
+
+<h2>Fixtures and Expected Outcomes</h2>
+<p>Each row lists the fixture file, the condition under test, and the expected <code>composerRoot</code> / <code>attachmentCount</code> / <code>sendButton</code> outcome. These are expected outcomes per the runtime contract, not observed execution results.</p>
+
+<ul>
+  <li>
+    <a href="composer-isolation/01-gemini-empty-formless.html">01-gemini-empty-formless.html</a>
+    &mdash; Empty formless Gemini composer, send button absent when empty.
+    Expected: <code>composerRoot</code> = the <code>.composer-container[role="region"]</code>
+    element (safe landmark, not <code>document.body</code>/<code>document.documentElement</code>);
+    <code>attachmentCount</code> = 0; <code>sendButton</code> = <code>null</code>
+    (no candidates in scope).
+  </li>
+  <li>
+    <a href="composer-isolation/02-claude-empty-formless.html">02-claude-empty-formless.html</a>
+    &mdash; Empty formless Claude composer, send button absent when empty.
+    Expected: <code>composerRoot</code> = the <code>fieldset.composer-fieldset[role="group"]</code>
+    element; <code>attachmentCount</code> = 0; <code>sendButton</code> = <code>null</code>.
+  </li>
+  <li>
+    <a href="composer-isolation/03-page-root-boundary-orphan.html">03-page-root-boundary-orphan.html</a>
+    &mdash; Orphan <code>textarea</code> that is a <strong>direct child of
+    <code>document.body</code></strong> (no wrapper <code>div</code>s), so
+    <code>input.parentElement</code> = <code>body</code>,
+    <code>input.parentElement.parentElement</code> = <code>html</code>, and
+    <code>input.parentElement.parentElement.parentElement</code> =
+    <code>null</code> &mdash; every structural-ancestor candidate the runtime
+    could fall back to is <code>body</code>/<code>html</code>/<code>null</code>,
+    and no <code>form</code>/<code>[data-testid="composer"]</code>/
+    <code>[class*="composer"]</code>/<code>fieldset,[role="region"],[role="group"]</code>
+    ancestor exists at any depth. <code>promptInput</code> resolution: neither
+    the Gemini nor Claude registry <code>promptInput</code> selectors match a
+    bare <code>&lt;textarea id="orphan-prompt-input"&gt;</code>, so this
+    fixture uses an explicit <strong>fixture-only override</strong>:
+    <code>promptInput = ['#orphan-prompt-input']</code> (exact id selector,
+    evaluated only for this fixture, not a registry entry). Expected:
+    <code>composerRoot</code> = <code>null</code> (boundary guard rejects
+    <code>body</code>/<code>html</code>/<code>null</code>);
+    <code>attachmentCount</code> = 0; <code>sendButton</code> =
+    <code>null</code> (no root to scope the query against). The page-level
+    <code>#global-nav-submit</code> button must never be selected as a send
+    candidate.
+  </li>
+  <li>
+    <a href="composer-isolation/04-history-attachment-exclusion.html">04-history-attachment-exclusion.html</a>
+    &mdash; One prior-turn history thumbnail outside the composer, one staged
+    thumbnail inside the active <code>form[data-testid="composer"]</code>.
+    Selectors: <code>promptInput</code> matches the Gemini registry selector
+    <code>textarea[aria-label*='prompt' i]</code> exactly, via
+    <code>&lt;textarea class="prompt-input" aria-label="Prompt input"&gt;</code>
+    (no override needed); <code>composerRoot</code> resolves via
+    <code>input.closest('[data-testid="composer"]')</code> to
+    <code>form.current-composer-form</code>, which structurally excludes the
+    sibling <code>.history-stream</code> thumbnail; <code>attachmentCount</code>
+    is counted via the Claude registry selector
+    <code>div[data-testid='file-thumbnail']</code>, which matches exactly one
+    element scoped inside that form (the history thumbnail is outside the
+    scoped root and is not counted regardless of selector); <code>sendButton</code>
+    matches the shared Gemini/Claude registry selector
+    <code>button[aria-label*='Send' i]</code> against the single
+    <code>[data-testid="send-button"]</code> inside the form. Expected:
+    <code>composerRoot</code> = the <code>form.current-composer-form</code>
+    element; <code>attachmentCount</code> = 1 (history thumbnail excluded by
+    scope); <code>sendButton</code> = that single
+    <code>[data-testid="send-button"]</code>. This count is a structural
+    consequence of DOM scoping to <code>composerRoot</code>, not of any
+    attachment-selector difference between providers.
+  </li>
+  <li>
+    <a href="composer-isolation/05-ambiguous-send-candidates.html">05-ambiguous-send-candidates.html</a>
+    &mdash; Two visible <code>type="submit"</code> buttons inside one composer
+    scope. Selectors: <code>promptInput</code> matches the Gemini registry
+    selector <code>textarea[aria-label*='prompt' i]</code> exactly, via
+    <code>&lt;textarea class="prompt-input" aria-label="Prompt input"&gt;</code>
+    (no override needed); <code>composerRoot</code> resolves via
+    <code>input.closest('[data-testid="composer"]')</code> to
+    <code>form.ambiguous-composer</code>; both buttons (aria-label="Send
+    primary" / "Send secondary") match the shared Gemini/Claude registry
+    selector <code>button[aria-label*='Send' i]</code>, yielding 2 candidates.
+    Expected: <code>composerRoot</code> = the <code>form.ambiguous-composer</code>
+    element; <code>attachmentCount</code> = 0; <code>sendButton</code> =
+    <code>null</code> (uniqueness guard rejects 2 registry-matched candidates).
+  </li>
+  <li>
+    <a href="composer-isolation/06-filtered-send-candidates.html">06-filtered-send-candidates.html</a>
+    &mdash; Voice and dictation buttons present alongside one legitimate send
+    button in the same composer scope. Selectors: <code>promptInput</code>
+    matches the Gemini registry selector
+    <code>textarea[aria-label*='prompt' i]</code> exactly, via
+    <code>&lt;textarea class="prompt-input" aria-label="Prompt input"&gt;</code>
+    (no override needed); <code>composerRoot</code> resolves via
+    <code>input.closest('[data-testid="composer"]')</code> to
+    <code>form.control-composer</code>. Neither the voice button
+    (aria-label="voice mode") nor the dictation button (aria-label="음성
+    받아쓰기") matches any Gemini or Claude registry <code>submitButton</code>
+    selector on their own, so this fixture uses an explicit
+    <strong>fixture-only override</strong>: <code>submitButton =
+    ['.button-group button']</code> (broad, evaluated only for this fixture),
+    which admits all 3 buttons into the candidate pool so the runtime's
+    negative-label filter (<code>/stop|중지|정지|voice|음성|dictat|받아쓰기/</code>)
+    is what performs the exclusion rather than the selector query itself. The
+    remaining send button (aria-label="보내기") is independently an exact
+    Gemini registry match via <code>button[aria-label*='보내기' i]</code>.
+    Expected: <code>composerRoot</code> = the <code>form.control-composer</code>
+    element; <code>attachmentCount</code> = 0; <code>sendButton</code> = the
+    single <code>[data-testid="send-button"]</code> (voice/dictation filtered
+    out by label, leaving exactly one candidate).
+  </li>
+  <li>
+    <a href="composer-isolation/07-claude-attach-and-true-send-typebutton.html">07-claude-attach-and-true-send-typebutton.html</a>
+    &mdash; Claude fieldset with an "Attach files" <code>type="button"</code>
+    and a true send <code>type="button"</code> with a paper-plane icon; both
+    match the broad <code>fieldset button[type='button']:not([disabled])</code>
+    selector. Expected: <code>composerRoot</code> = the
+    <code>fieldset.composer-fieldset[role="group"]</code> element;
+    <code>attachmentCount</code> = 0; <code>sendButton</code> = the single
+    <code>.claude-send-btn</code> (attach button excluded by negative semantic
+    filter, leaving exactly one positive candidate).
+  </li>
+  <li>
+    <a href="composer-isolation/08-ambiguous-two-true-send.html">08-ambiguous-two-true-send.html</a>
+    &mdash; Two distinct buttons, each with an explicit positive send
+    semantic (paper-plane icon + "Send" label) at the same priority level.
+    Expected: <code>composerRoot</code> = the
+    <code>fieldset.composer-fieldset[role="group"]</code> element;
+    <code>attachmentCount</code> = 0; <code>sendButton</code> = <code>null</code>
+    (uniqueness guard rejects 2 positive candidates).
+  </li>
+  <li>
+    <a href="composer-isolation/09-unlabeled-unknown-button-no-positives.html">09-unlabeled-unknown-button-no-positives.html</a>
+    &mdash; A real Claude <code>fieldset</code> composer containing one
+    visible, non-excluded <code>type="button"</code> with no positive send
+    semantic (no "Send"/"전송" label, no aria-label, no paper-plane icon, no
+    submit type). Selectors: <code>promptInput</code> matches the Claude
+    registry selector <code>fieldset div[contenteditable='true']</code>
+    exactly, via <code>&lt;fieldset class="composer-fieldset" role="group"&gt;
+    &lt;div class="ProseMirror" contenteditable="true"&gt;</code> (no override
+    needed); <code>composerRoot</code> resolves via
+    <code>input.closest('fieldset,[role="region"],[role="group"]')</code> to
+    the <code>fieldset.composer-fieldset[role="group"]</code> element; the
+    lone <code>button.generic-action-btn</code> matches the Claude registry
+    <code>submitButton</code> selector
+    <code>fieldset button[type='button']:not([disabled])</code> exactly, so it
+    <em>is</em> admitted into the candidate pool by the selector query itself
+    (this is not a selector-exclusion case). Expected: <code>composerRoot</code>
+    = the <code>fieldset.composer-fieldset[role="group"]</code> element;
+    <code>attachmentCount</code> = 0; <code>sendButton</code> = <code>null</code>,
+    because the runtime's positive-semantic filter rejects the one candidate
+    for having no "Send"/"전송" label, no matching aria-label, and no
+    paper-plane icon &mdash; i.e. the rejection happens in the
+    no-positive-semantic branch, not because the candidate pool was empty.
+  </li>
+</ul>
+
+<h2>Related Files</h2>
+<ul>
+  <li>
+    <a href="sanitized-composer-readiness-traces.json">sanitized-composer-readiness-traces.json</a>
+    &mdash; synthetic design-input traces (not substitutes for DOM regression
+    evidence).
+  </li>
+  <li>
+    <a href="../verification/2026-10-03-shared-runtime-composer-isolation.md">verification/2026-10-03-shared-runtime-composer-isolation.md</a>
+    &mdash; verification note referencing these fixtures.
+  </li>
+</ul>
+
+</body>
+</html>

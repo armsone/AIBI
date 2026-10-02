@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Composer Isolation Fixture 03 - Page-Root Boundary Orphan Input</title>
+</head>
+<body>
+
+  <!-- Synthetic sanitized fixture. No real prompts/answers/private content. -->
+  <!-- Scenario: Page-Root Boundary Protection -->
+  <!-- Formless input that is a DIRECT child of document.body (no wrapper divs). -->
+  <!-- Chain: textarea.parentElement = document.body; textarea.parentElement.parentElement = -->
+  <!-- document.documentElement; textarea.parentElement.parentElement.parentElement = null. -->
+  <!-- closest('form'), closest('[data-testid="composer"]'), closest('[class*="composer"]'), -->
+  <!-- and closest('fieldset,[role="region"],[role="group"]') all resolve to null since no such -->
+  <!-- ancestor exists anywhere between the input and the document root. Every structural-ancestor -->
+  <!-- candidate the runtime could fall back to is therefore body, html, or null -- all rejected by -->
+  <!-- isSafeComposerRoot -> composerRoot(config) must return null. -->
+  <!-- Fixture-only promptInput override (plain textarea matches no Gemini/Claude registry -->
+  <!-- selector): resolve via the exact id selector '#orphan-prompt-input', documented in the -->
+  <!-- fixture index and verification note; this is not a registry promptInput entry. -->
+  <textarea id="orphan-prompt-input" placeholder="Orphan textarea without valid composer"></textarea>
+  <!-- Global button outside any composer scope; must never be treated as a send candidate -->
+  <button type="submit" id="global-nav-submit" aria-label="Global Search Submit">Submit</button>
+
+</body>
+</html>

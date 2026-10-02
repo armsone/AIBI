@@ -1,0 +1,79 @@
+{
+  "description": "Sanitized synthetic device traces for empty composer reset and attachment readiness verification across providers. DESIGN INPUT ONLY: These synthetic numeric JSON records represent design inputs and contract specifications, NOT observed device traces, and do not substitute for actual DOM regression evidence.",
+  "traces": [
+    {
+      "trace_id": "gemini-empty-composer-prep-01",
+      "provider": "gemini",
+      "platform": "android",
+      "stage": "composer_reset",
+      "metrics": {
+        "composer_present": 1,
+        "send_present": 0,
+        "root_present": 1,
+        "preview_count": 0,
+        "input_count": 1,
+        "send_enabled": 0,
+        "generation_active": 0,
+        "stop_present": 0,
+        "reset_tiles": 0,
+        "reset_clicks": 0,
+        "reset_error": 0
+      },
+      "condition": "Editor empty, send button omitted by provider DOM, safe parent composer root discovered without document/body/html or history traversal."
+    },
+    {
+      "trace_id": "claude-empty-composer-prep-01",
+      "provider": "claude",
+      "platform": "android",
+      "stage": "composer_reset",
+      "metrics": {
+        "composer_present": 1,
+        "send_present": 0,
+        "root_present": 1,
+        "preview_count": 0,
+        "input_count": 1,
+        "send_enabled": 0,
+        "generation_active": 0,
+        "stop_present": 0,
+        "reset_tiles": 0,
+        "reset_clicks": 0,
+        "reset_error": 0
+      },
+      "condition": "ProseMirror empty, fieldset/parent ancestor discovery active without form or send button, document/body/html and transcript rows safely rejected."
+    },
+    {
+      "trace_id": "gemini-multi-attachment-staged-08",
+      "provider": "gemini",
+      "platform": "android",
+      "stage": "attachment_confirmed",
+      "metrics": {
+        "composer_present": 1,
+        "send_present": 1,
+        "root_present": 1,
+        "preview_count": 8,
+        "input_count": 1,
+        "send_enabled": 1,
+        "generation_active": 0,
+        "stop_present": 0
+      },
+      "condition": "All 8 image previews present in composer scope with remove buttons verified, send button visible and unique."
+    },
+    {
+      "trace_id": "claude-multi-attachment-staged-08",
+      "provider": "claude",
+      "platform": "android",
+      "stage": "attachment_confirmed",
+      "metrics": {
+        "composer_present": 1,
+        "send_present": 1,
+        "root_present": 1,
+        "preview_count": 8,
+        "input_count": 1,
+        "send_enabled": 1,
+        "generation_active": 0,
+        "stop_present": 0
+      },
+      "condition": "All 8 thumbnails confirmed, send button present, history excluded from attachment count."
+    }
+  ]
+}

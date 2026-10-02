@@ -32,7 +32,26 @@ object ExternalAIScripts {
             }
             var allowAncestorSearch=$allowAncestorSearch;
             var input=firstVisible(${config.input});
-            var composer=input && (input.closest('form') || input.closest('[data-testid="composer"]') || input.closest('[class*="composer"]'));
+            var historySelector='model-response,message-content,user-query,[data-test-id="model-response"],[data-test-id="user-query"],[data-testid="transcript-row"],[data-testid*="conversation-turn"],[data-testid*="assistant"],[data-testid*="user-message"],.font-claude-message,.font-claude-response,.font-user-message,[data-message-author-role]';
+            function isSafeComposerRoot(node) {
+                if(!node || node===document || node===document.body || node===document.documentElement || node.nodeType!==1) return false;
+                if(node.tagName==='BODY' || node.tagName==='HTML') return false;
+                try {
+                    if((node.matches && node.matches(historySelector)) || node.querySelector(historySelector)) return false;
+                } catch(_) { return false; }
+                return true;
+            }
+            var composer=input && (input.closest('form') || input.closest('[data-testid="composer"]') || input.closest('[class*="composer"]') || input.closest('fieldset,[role="region"],[role="group"]'));
+            if(composer && !isSafeComposerRoot(composer)) composer=null;
+            if(!composer && input && allowAncestorSearch && !input.closest('form')) {
+                var p=input.parentElement;
+                var p3=(p&&p.parentElement&&p.parentElement.parentElement)||null;
+                if(p3 && isSafeComposerRoot(p3)) {
+                    composer=p3;
+                } else if(p && isSafeComposerRoot(p)) {
+                    composer=p;
+                }
+            }
             var validatedFallback=false;
             function findSendCandidates(root) {
                 if(!root) return [];
