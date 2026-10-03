@@ -337,6 +337,9 @@
         generation_active: generationVisible(config) ? 1 : 0,
         stop_present: generationVisible(config) ? 1 : 0,
         assistant_message_present: assistantMessages(config).length ? 1 : 0,
+        response_heading_count: Math.min(1000, Array.from(document.querySelectorAll('h1,h2,h3,h4,h5,h6')).filter(el => /^(ChatGPT 답변:|ChatGPT said:)$/.test((el.textContent || '').trim())).length),
+        pre_count: Math.min(1000, document.querySelectorAll('pre').length),
+        code_count: Math.min(1000, document.querySelectorAll('code').length),
         user_message_present: document.querySelector('[data-message-author-role="user"]') ? 1 : 0,
         uploading_count: root ? queryAll(['[role="progressbar"]', '[aria-busy="true"]', '.animate-spin'], root).filter(isVisible).length : 0,
       };
@@ -691,7 +694,8 @@
       const currentText = isContentEditable ? (inputEl.innerText || '').trim() : (inputEl.value || '').trim();
 
       // Avoid clobbering user text unless explicit force retry is requested
-      if (currentText.length > 0 && currentText !== promptText.trim() && !force) {
+      const normalizeDraft = value => String(value).replace(/\s+/g, ' ').trim().replace(/[‘’]/g, "'").replace(/[“”]/g, '"');
+      if (currentText.length > 0 && normalizeDraft(currentText) !== normalizeDraft(promptText) && !force) {
         return JSON.stringify({
           success: false,
           code: 'EXISTING_TEXT_PRESERVED',
@@ -713,8 +717,8 @@
         // Try document.execCommand for native undo-stack & framework integration
         let inserted = false;
         try {
-          // WebKit insertText can apply macOS smart quotes and corrupt structured prompts.
-          // Escape markup so mail or other untrusted text is inserted as literal text only.
+          // WebKit insertText applies macOS smart quotes and corrupts JSON requests.
+          // Escaped HTML inserts literal text while preserving native editor input events.
           const literalHTML = String(promptText).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\r\n?|\n/g, '<br>');
           inserted = document.execCommand('insertHTML', false, literalHTML);
         } catch (_) {
@@ -799,6 +803,18 @@
         data: {
           matches: matches,
           currentLength: currentText.length,
+          differenceKind: (() => {
+            const a = normalize(currentText), b = normalize(expected);
+            if (a === b) return 0;
+            if (a.normalize('NFC') === b.normalize('NFC')) return 1;
+            const formats = x => x.replace(/[\u200B-\u200F\u202A-\u202E\u2060-\u206F\uFEFF]/g, '');
+            if (formats(a) === formats(b)) return 2;
+            const quotes = x => x.replace(/[‘’]/g, "'").replace(/[“”]/g, '"');
+            if (quotes(a) === quotes(b)) return 3;
+            if (a.replace(/\s/g, '') === b.replace(/\s/g, '')) return 4;
+            if (a.replace(/[\u0000-\u001F\u007F]/g, '') === b.replace(/[\u0000-\u001F\u007F]/g, '')) return 5;
+            return 6;
+          })(),
         },
       });
     } catch (err) {

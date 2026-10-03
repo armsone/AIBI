@@ -1,0 +1,11 @@
+# MailTranslator native macOS host profile
+
+Consumer: `/Users/armsone/git/MailTranslator-MacOS`. Native AppKit/WKWebView adapter; existing persistent web-account sessions for ChatGPT, Claude and Gemini. Mail HTML/images are rendered in a separate isolated browser.
+
+The host owns translation segment ids, per-batch plain-text record markers and strict validation (legacy JSON compatibility remains), frozen batches, consent, remembered provider choice, Mail toolbar overlay, HTML rendering and OCR placement. It applies only text between its unpredictable batch markers; surrounding web UI labels are not applied. All matching markers are validated, including unexpected/duplicate IDs and premature END. Omitted or invalid values remain pending for one same-provider retry; repeated omissions become visible failures. Already completed items are not resent, the four-batch action limit remains, and cancellation/document/provider changes clear retry state. Only an explicit translation action sends subject/body/OCR text; selecting a provider or importing a file does not send it. None of these policies becomes a portable default.
+
+0.5.3 fixes literal rich-editor insertion, localized authenticated markers, code-block extraction, ChatGPT semantic reply headings/stop control, and OAuth child-opener continuity. A rejected answer stays in its existing browser during manual takeover.
+
+The native Mail host also permits one completed-invalid-format retry and one exact known Gemini temporary-service-error retry per authorized action, within the four-request action budget. Validation remains strict and no invalid text is applied. A second format rejection uses existing-browser manual takeover. Manual-only, ambiguous submission, login, CAPTCHA, quota and timeout paths are not automatically retried. The Mail result sink receives raw response; generic prose cleanup is not used for structured mail/code/OCR results. These retry/validation rules do not become common runtime defaults.
+
+`distribution/macos/` is the host-adapted snapshot. Its dependencies on the host result sink/task header remain explicit; do not install it in UIKit consumers or overwrite other products. This consumer is independently registered; shared source changes do not prove other consumers work.

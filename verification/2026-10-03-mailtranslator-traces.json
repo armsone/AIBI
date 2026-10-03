@@ -1,0 +1,466 @@
+{
+  "scope": "Final candidate whole-mail live verification; no mail/account/prompt/response/URL data",
+  "mailToolbarVerification": "pending, 0/5; signing entitlement approval required",
+  "currentCandidate": {
+    "version": "0.1.0",
+    "build": "202610031842",
+    "rounds": [
+      {
+        "provider": "gemini",
+        "round": 1,
+        "entry": "translator-toolbar",
+        "startedAt": "2026-10-03T11:07:23.027142+00:00",
+        "completedAt": "2026-10-03T11:09:09.288602+00:00",
+        "passed": true,
+        "nativeUIComplete": true,
+        "translatedContentObserved": true,
+        "batches": [
+          {
+            "elapsedMilliseconds": 20761,
+            "responseLength": 7856,
+            "sendObserved": true,
+            "generationCompleted": true,
+            "resultApplied": true,
+            "runCompleted": true
+          },
+          {
+            "elapsedMilliseconds": 7663,
+            "responseLength": 731,
+            "sendObserved": true,
+            "generationCompleted": true,
+            "resultApplied": true,
+            "runCompleted": true
+          }
+        ],
+        "recoveredServiceErrors": [],
+        "recoveredFormatErrors": []
+      },
+      {
+        "provider": "gemini",
+        "round": 2,
+        "entry": "translator-toolbar",
+        "startedAt": "2026-10-03T11:09:09.339209+00:00",
+        "completedAt": "2026-10-03T11:11:11.162166+00:00",
+        "passed": true,
+        "nativeUIComplete": true,
+        "translatedContentObserved": true,
+        "batches": [
+          {
+            "elapsedMilliseconds": 20840,
+            "responseLength": 7978,
+            "sendObserved": true,
+            "generationCompleted": true,
+            "resultApplied": true,
+            "runCompleted": true
+          },
+          {
+            "elapsedMilliseconds": 8426,
+            "responseLength": 724,
+            "sendObserved": true,
+            "generationCompleted": true,
+            "resultApplied": true,
+            "runCompleted": true
+          }
+        ],
+        "recoveredServiceErrors": [],
+        "recoveredFormatErrors": []
+      },
+      {
+        "provider": "gemini",
+        "round": 3,
+        "entry": "translator-toolbar",
+        "startedAt": "2026-10-03T11:11:11.217481+00:00",
+        "completedAt": "2026-10-03T11:14:32.358636+00:00",
+        "passed": true,
+        "nativeUIComplete": true,
+        "translatedContentObserved": true,
+        "batches": [
+          {
+            "elapsedMilliseconds": 7538,
+            "responseLength": 713,
+            "sendObserved": true,
+            "generationCompleted": true,
+            "resultApplied": true,
+            "runCompleted": true
+          },
+          {
+            "elapsedMilliseconds": 22214,
+            "responseLength": 7811,
+            "sendObserved": true,
+            "generationCompleted": true,
+            "resultApplied": true,
+            "runCompleted": true
+          }
+        ],
+        "recoveredServiceErrors": [],
+        "recoveredFormatErrors": []
+      },
+      {
+        "provider": "gemini",
+        "round": 4,
+        "entry": "translator-toolbar",
+        "startedAt": "2026-10-03T11:14:32.427289+00:00",
+        "completedAt": "2026-10-03T11:16:07.330238+00:00",
+        "passed": true,
+        "nativeUIComplete": true,
+        "translatedContentObserved": true,
+        "batches": [
+          {
+            "elapsedMilliseconds": 21385,
+            "responseLength": 7862,
+            "sendObserved": true,
+            "generationCompleted": true,
+            "resultApplied": true,
+            "runCompleted": true
+          },
+          {
+            "elapsedMilliseconds": 8265,
+            "responseLength": 704,
+            "sendObserved": true,
+            "generationCompleted": true,
+            "resultApplied": true,
+            "runCompleted": true
+          }
+        ],
+        "recoveredServiceErrors": [],
+        "recoveredFormatErrors": []
+      },
+      {
+        "provider": "gemini",
+        "round": 5,
+        "entry": "translator-toolbar",
+        "startedAt": "2026-10-03T11:16:37.824825+00:00",
+        "completedAt": "2026-10-03T11:18:56.097748+00:00",
+        "passed": true,
+        "nativeUIComplete": true,
+        "translatedContentObserved": true,
+        "batches": [
+          {
+            "elapsedMilliseconds": 9038,
+            "responseLength": 717,
+            "sendObserved": true,
+            "generationCompleted": true,
+            "resultApplied": true,
+            "runCompleted": true
+          },
+          {
+            "elapsedMilliseconds": 20328,
+            "responseLength": 7843,
+            "sendObserved": true,
+            "generationCompleted": true,
+            "resultApplied": true,
+            "runCompleted": true
+          }
+        ],
+        "recoveredServiceErrors": [],
+        "recoveredFormatErrors": []
+      },
+      {
+        "provider": "claude",
+        "round": 1,
+        "entry": "translator-toolbar",
+        "startedAt": "2026-10-03T11:19:56.590667+00:00",
+        "completedAt": "2026-10-03T11:21:13.682251+00:00",
+        "passed": true,
+        "nativeUIComplete": true,
+        "translatedContentObserved": true,
+        "batches": [
+          {
+            "elapsedMilliseconds": 7688,
+            "responseLength": 736,
+            "sendObserved": true,
+            "generationCompleted": true,
+            "resultApplied": true,
+            "runCompleted": true
+          },
+          {
+            "elapsedMilliseconds": 41017,
+            "responseLength": 7841,
+            "sendObserved": true,
+            "generationCompleted": true,
+            "resultApplied": true,
+            "runCompleted": true
+          }
+        ],
+        "recoveredServiceErrors": [],
+        "recoveredFormatErrors": []
+      },
+      {
+        "provider": "claude",
+        "round": 2,
+        "entry": "translator-toolbar",
+        "startedAt": "2026-10-03T11:21:13.734673+00:00",
+        "completedAt": "2026-10-03T11:23:14.162683+00:00",
+        "passed": true,
+        "nativeUIComplete": true,
+        "translatedContentObserved": true,
+        "batches": [
+          {
+            "elapsedMilliseconds": 7725,
+            "responseLength": 722,
+            "sendObserved": true,
+            "generationCompleted": true,
+            "resultApplied": true,
+            "runCompleted": true
+          },
+          {
+            "elapsedMilliseconds": 40407,
+            "responseLength": 7921,
+            "sendObserved": true,
+            "generationCompleted": true,
+            "resultApplied": true,
+            "runCompleted": true
+          }
+        ],
+        "recoveredServiceErrors": [],
+        "recoveredFormatErrors": []
+      },
+      {
+        "provider": "claude",
+        "round": 3,
+        "entry": "translator-toolbar",
+        "startedAt": "2026-10-03T11:23:14.220018+00:00",
+        "completedAt": "2026-10-03T11:28:25.749346+00:00",
+        "passed": true,
+        "nativeUIComplete": true,
+        "translatedContentObserved": true,
+        "batches": [
+          {
+            "elapsedMilliseconds": 7898,
+            "responseLength": 772,
+            "sendObserved": true,
+            "generationCompleted": true,
+            "resultApplied": true,
+            "runCompleted": true
+          },
+          {
+            "elapsedMilliseconds": 41658,
+            "responseLength": 7897,
+            "sendObserved": true,
+            "generationCompleted": true,
+            "resultApplied": true,
+            "runCompleted": true
+          }
+        ],
+        "recoveredServiceErrors": [],
+        "recoveredFormatErrors": []
+      },
+      {
+        "provider": "claude",
+        "round": 4,
+        "entry": "translator-toolbar",
+        "startedAt": "2026-10-03T11:28:25.964763+00:00",
+        "completedAt": "2026-10-03T11:29:31.917209+00:00",
+        "passed": true,
+        "nativeUIComplete": true,
+        "translatedContentObserved": true,
+        "batches": [
+          {
+            "elapsedMilliseconds": 7695,
+            "responseLength": 690,
+            "sendObserved": true,
+            "generationCompleted": true,
+            "resultApplied": true,
+            "runCompleted": true
+          },
+          {
+            "elapsedMilliseconds": 41557,
+            "responseLength": 7649,
+            "sendObserved": true,
+            "generationCompleted": true,
+            "resultApplied": true,
+            "runCompleted": true
+          }
+        ],
+        "recoveredServiceErrors": [],
+        "recoveredFormatErrors": []
+      },
+      {
+        "provider": "claude",
+        "round": 5,
+        "entry": "translator-toolbar",
+        "startedAt": "2026-10-03T11:30:00.797564+00:00",
+        "completedAt": "2026-10-03T11:32:17.044473+00:00",
+        "passed": true,
+        "nativeUIComplete": true,
+        "translatedContentObserved": true,
+        "batches": [
+          {
+            "elapsedMilliseconds": 40384,
+            "responseLength": 7839,
+            "sendObserved": true,
+            "generationCompleted": true,
+            "resultApplied": true,
+            "runCompleted": true
+          },
+          {
+            "elapsedMilliseconds": 7818,
+            "responseLength": 697,
+            "sendObserved": true,
+            "generationCompleted": true,
+            "resultApplied": true,
+            "runCompleted": true
+          }
+        ],
+        "recoveredServiceErrors": [],
+        "recoveredFormatErrors": [
+          {
+            "kind": "item-validation-rejected",
+            "elapsedMilliseconds": 47896
+          }
+        ]
+      },
+      {
+        "provider": "chatgpt",
+        "round": 1,
+        "entry": "translator-toolbar",
+        "startedAt": "2026-10-03T11:33:03.390312+00:00",
+        "completedAt": "2026-10-03T11:35:03.000391+00:00",
+        "passed": true,
+        "nativeUIComplete": true,
+        "translatedContentObserved": true,
+        "batches": [
+          {
+            "elapsedMilliseconds": 16203,
+            "responseLength": 718,
+            "sendObserved": true,
+            "generationCompleted": true,
+            "resultApplied": true,
+            "runCompleted": true
+          },
+          {
+            "elapsedMilliseconds": 86304,
+            "responseLength": 7758,
+            "sendObserved": true,
+            "generationCompleted": true,
+            "resultApplied": true,
+            "runCompleted": true
+          }
+        ],
+        "recoveredServiceErrors": [],
+        "recoveredFormatErrors": []
+      },
+      {
+        "provider": "chatgpt",
+        "round": 2,
+        "entry": "translator-toolbar",
+        "startedAt": "2026-10-03T11:35:03.233285+00:00",
+        "completedAt": "2026-10-03T11:37:33.944535+00:00",
+        "passed": true,
+        "nativeUIComplete": true,
+        "translatedContentObserved": true,
+        "batches": [
+          {
+            "elapsedMilliseconds": 90297,
+            "responseLength": 7816,
+            "sendObserved": true,
+            "generationCompleted": true,
+            "resultApplied": true,
+            "runCompleted": true
+          },
+          {
+            "elapsedMilliseconds": 15645,
+            "responseLength": 721,
+            "sendObserved": true,
+            "generationCompleted": true,
+            "resultApplied": true,
+            "runCompleted": true
+          }
+        ],
+        "recoveredServiceErrors": [],
+        "recoveredFormatErrors": []
+      },
+      {
+        "provider": "chatgpt",
+        "round": 3,
+        "entry": "translator-toolbar",
+        "startedAt": "2026-10-03T11:37:34.184650+00:00",
+        "completedAt": "2026-10-03T11:40:17.702735+00:00",
+        "passed": true,
+        "nativeUIComplete": true,
+        "translatedContentObserved": true,
+        "batches": [
+          {
+            "elapsedMilliseconds": 84009,
+            "responseLength": 7775,
+            "sendObserved": true,
+            "generationCompleted": true,
+            "resultApplied": true,
+            "runCompleted": true
+          },
+          {
+            "elapsedMilliseconds": 20893,
+            "responseLength": 720,
+            "sendObserved": true,
+            "generationCompleted": true,
+            "resultApplied": true,
+            "runCompleted": true
+          }
+        ],
+        "recoveredServiceErrors": [],
+        "recoveredFormatErrors": []
+      },
+      {
+        "provider": "chatgpt",
+        "round": 4,
+        "entry": "translator-toolbar",
+        "startedAt": "2026-10-03T11:40:17.938012+00:00",
+        "completedAt": "2026-10-03T11:42:27.412783+00:00",
+        "passed": true,
+        "nativeUIComplete": true,
+        "translatedContentObserved": true,
+        "batches": [
+          {
+            "elapsedMilliseconds": 15518,
+            "responseLength": 726,
+            "sendObserved": true,
+            "generationCompleted": true,
+            "resultApplied": true,
+            "runCompleted": true
+          },
+          {
+            "elapsedMilliseconds": 80084,
+            "responseLength": 7786,
+            "sendObserved": true,
+            "generationCompleted": true,
+            "resultApplied": true,
+            "runCompleted": true
+          }
+        ],
+        "recoveredServiceErrors": [],
+        "recoveredFormatErrors": []
+      },
+      {
+        "provider": "chatgpt",
+        "round": 5,
+        "entry": "translator-toolbar",
+        "startedAt": "2026-10-03T11:42:56.008526+00:00",
+        "completedAt": "2026-10-03T11:45:22.335810+00:00",
+        "passed": true,
+        "nativeUIComplete": true,
+        "translatedContentObserved": true,
+        "batches": [
+          {
+            "elapsedMilliseconds": 15256,
+            "responseLength": 719,
+            "sendObserved": true,
+            "generationCompleted": true,
+            "resultApplied": true,
+            "runCompleted": true
+          },
+          {
+            "elapsedMilliseconds": 78556,
+            "responseLength": 7787,
+            "sendObserved": true,
+            "generationCompleted": true,
+            "resultApplied": true,
+            "runCompleted": true
+          }
+        ],
+        "recoveredServiceErrors": [],
+        "recoveredFormatErrors": []
+      }
+    ],
+    "sourceSHA256": "8d5ebd403a7c07981efb8c7c531d538fa1eab4db9474ce324b8a1261b265c96c"
+  }
+}

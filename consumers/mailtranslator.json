@@ -1,0 +1,39 @@
+{
+  "schemaVersion": 1,
+  "consumer": "mailtranslator",
+  "repositories": [
+    {
+      "id": "mailtranslator-macos",
+      "root": "../MailTranslator-MacOS",
+      "lockFile": ".aibi-lock.json",
+      "verification": "./build.sh --build-only",
+      "files": [
+        {
+          "source": "profiles/mailtranslator/distribution/macos/AIBIMacEngine.swift",
+          "destination": "Sources/AIBIMacEngine.swift",
+          "scope": "host-adapted-runtime"
+        },
+        {
+          "source": "profiles/mailtranslator/distribution/macos/AIBIDiagnosticsStore.swift",
+          "destination": "Sources/AIBIDiagnosticsStore.swift",
+          "scope": "host-adapted-runtime"
+        },
+        {
+          "source": "profiles/mailtranslator/distribution/macos/AISettingsView.swift",
+          "destination": "Sources/AISettingsView.swift",
+          "scope": "host-adapted-runtime"
+        },
+        {
+          "source": "profiles/mailtranslator/distribution/macos/aibi-browser-runtime.js",
+          "destination": "Resources/aibi-browser-runtime.js",
+          "scope": "provider-runtime"
+        },
+        {
+          "source": "profiles/mailtranslator/distribution/macos/aibi-providers.json",
+          "destination": "Resources/aibi-providers.json",
+          "scope": "provider-configuration"
+        }
+      ]
+    }
+  ]
+}

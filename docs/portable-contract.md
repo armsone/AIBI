@@ -40,7 +40,7 @@
 ## 입력과 전송
 
 - 제공자별 semantic selector 묶음을 사용하고 단일 CSS selector에 의존하지 않습니다.
-- textarea/input은 native value setter, contenteditable은 input/beforeinput 이벤트까지 사용합니다.
+- textarea/input은 native value setter, contenteditable은 input/beforeinput 이벤트까지 사용합니다. WebKit의 `insertText`가 macOS 스마트 따옴표 치환을 적용하면 JSON 등 구조화된 요청이 달라질 수 있으므로, 마크업을 전부 이스케이프한 literal text를 `insertHTML`로 입력하고 원문 일치 검증을 유지합니다.
 - 전송 준비 중에는 현재 작성창 안의 의미가 명확한 보내기 버튼만 선택합니다. 같은 DOM ID가 중지·음성 버튼으로 바뀔 수 있으므로 ID만으로 클릭하지 않습니다.
 - 한 작업에서 전송을 실행한 뒤에는 재클릭·form submit·Enter·문구 재입력을 하지 않고 확인만 반복합니다. 입력창이 비워지거나 사용자 메시지 카드가 생긴 상태는 전송 대기이지 응답 시작 증거가 아닙니다.
 - 새 assistant node 또는 보이는 생성 표식을 확인한 뒤 응답 관찰과 119초 카운트다운을 시작합니다. 전송 확인 상한 안에 시작 증거가 없으면 명확한 실패로 종료하고 진단 로그 공유를 안내합니다.
@@ -53,7 +53,7 @@
 - 새 노드뿐 아니라 같은 노드의 텍스트 변화도 후보로 취급합니다.
 - 제공자별 완료·중지·오류 표식은 보이는 요소만 인정합니다. DOM에 남은 숨김 spinner는 무시합니다.
 - 비어 있지 않은 후보가 생성 중이 아니고 최소 3회 같은 정규화 텍스트로 관찰될 때 완료합니다.
-- `pre code`를 우선하고 바깥 코드펜스·단순 머리말·UI 장식을 정리합니다.
+- `pre code`를 우선하고 코드 블록은 `textContent`를 먼저 읽어 화면 배치에 따른 `innerText` 변형을 피합니다. 바깥 코드펜스·단순 머리말·UI 장식을 정리합니다.
 - 호스트 결과 sink가 승인한 결과만 정확히 한 번 반영합니다.
 - 결과 관찰에는 호스트가 정한 유한한 상한을 둡니다. 기본 상한은 전송 확인 후 119초이며, `1:59 → 0:00` 역카운터와 줄어드는 진행 바로 알립니다. 0에서 작업을 자동 중단하고 짧은 재시도 안내를 표시합니다.
 - 숨김·보이기 실행 모두 진행 화면에 항상 `취소` 행동을 제공합니다. 취소는 WebView, 관찰 타이머, taskId를 즉시 무효화하고 사용자가 곧바로 다른 제공자를 선택할 수 있게 합니다.
@@ -66,3 +66,10 @@
 - 진단은 기기 내부에 최근 10회, 회당 최대 400개 이벤트로 제한해 보관합니다. 앱·OS·AIBI 버전, 실행 내부 임의 ID, 경과 시간, 첨부/입력/생성 상태의 개수와 불리언, HTTP 상태와 허용된 실패 종류만 기록합니다. 원시 오류·DOM·selector 내용·파일명·계정·사진·입력·답변·URL은 저장하지 않습니다.
 - 사진 요청 여부는 관찰 가능한 요청 본문의 이미지 항목 개수로 기록할 수 있으나 본문은 보관하지 않습니다. 요청은 페이지 내부 순번으로 시작/응답/실패를 연결하고, 고정 코드 설명을 JSON에 포함합니다. 로그 생성은 원래 요청·응답·취소 동작을 변경하지 않아야 합니다.
 - 호스트 설정은 최근 진단 JSON 공유를 제공합니다. 자동 외부 전송은 하지 않으며 사용자 시스템 공유 동작으로만 내보냅니다. 로그 저장 실패가 원래 AI 작업을 실패시키면 안 됩니다.
+
+
+## WebKit OAuth popup continuity (0.5.3)
+
+When a provider opens OAuth through `window.open`, the Apple adapter must return a real child `WKWebView` from `createWebViewWith`, using the configuration supplied by WebKit. Loading that request in the main view and returning `nil` destroys the opener relationship and can leave a blank callback window. Keep the child visibly available for the official authentication flow; apply the existing navigation allowlist, do not inject task scripts in the child, and close/release it on `webViewDidClose`, user close, cancellation or adapter teardown. Bound the number of retained children. Existing session storage and authorized origins remain unchanged.
+
+A finished answer rejected by the host validator, or a finite extraction timeout, must retain the current conversation during visible takeover. Do not navigate to the provider home page and discard the answer. Format repair and translation item limits remain host policy, outside portable AIBI.
