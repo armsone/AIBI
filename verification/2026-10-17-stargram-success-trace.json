@@ -1,15 +1,15 @@
 {
-  "observedAtKST": "2026-10-17 10:31-10:33",
+  "observedAtKST": "2026-10-17 10:41",
   "sanitized": true,
   "appVersion": "2.6.7",
-  "appBuild": "202610170954",
+  "appBuild": "202610171037",
   "provider": "chatgpt",
   "syntheticMedia": {
     "count": 1,
     "kind": "solid-blue"
   },
-  "status": "submission-confirmed-result-import-failed-at-timeout",
-  "evidenceBoundary": "Three read-only device diagnostics copies. Diagnostics record generation_failed at 125756ms and run_failed at 125764/125771ms; no result_applied/run_completed. TM separately observed the 119-second timeout banner. No generated-answer content, prompt text, account, URL, or run identifier retained.",
+  "status": "result-applied-and-run-completed",
+  "evidenceBoundary": "One final-candidate ChatGPT one-image physical-device run confirmed by read-only numeric diagnostics. No generated-answer content, prompt text, account, URL, or run identifier retained. Other providers/devices are outside this success claim.",
   "events": [
     {
       "stage": "run_started",
@@ -18,12 +18,12 @@
     },
     {
       "stage": "browser_loaded",
-      "elapsedMilliseconds": 1119,
+      "elapsedMilliseconds": 1440,
       "metrics": {}
     },
     {
       "stage": "composer_reset",
-      "elapsedMilliseconds": 1128,
+      "elapsedMilliseconds": 1450,
       "metrics": {
         "composer_ready": 0,
         "reset_clicks": 0,
@@ -33,7 +33,7 @@
     },
     {
       "stage": "bridge_snapshot",
-      "elapsedMilliseconds": 1247,
+      "elapsedMilliseconds": 1671,
       "metrics": {
         "assistant_message_present": 0,
         "composer_present": 0,
@@ -50,7 +50,7 @@
     },
     {
       "stage": "request_started",
-      "elapsedMilliseconds": 1546,
+      "elapsedMilliseconds": 1858,
       "metrics": {
         "request_has_messages": 0,
         "request_id": 1,
@@ -59,7 +59,7 @@
     },
     {
       "stage": "composer_reset",
-      "elapsedMilliseconds": 1640,
+      "elapsedMilliseconds": 1934,
       "metrics": {
         "composer_ready": 1,
         "reset_clicks": 0,
@@ -70,31 +70,14 @@
     },
     {
       "stage": "attachment_started",
-      "elapsedMilliseconds": 1853,
+      "elapsedMilliseconds": 2142,
       "metrics": {
         "expected_count": 1
       }
     },
     {
-      "stage": "bridge_snapshot",
-      "elapsedMilliseconds": 1960,
-      "metrics": {
-        "assistant_message_present": 0,
-        "composer_present": 1,
-        "generation_active": 0,
-        "input_count": 4,
-        "preview_count": 0,
-        "prompt_length": 0,
-        "send_enabled": 0,
-        "send_present": 1,
-        "stop_present": 0,
-        "uploading_count": 0,
-        "user_message_present": 0
-      }
-    },
-    {
       "stage": "request_response",
-      "elapsedMilliseconds": 2020,
+      "elapsedMilliseconds": 2306,
       "metrics": {
         "http_status": 200,
         "request_id": 1,
@@ -102,26 +85,8 @@
       }
     },
     {
-      "stage": "request_started",
-      "elapsedMilliseconds": 2308,
-      "metrics": {
-        "request_has_messages": 0,
-        "request_id": 2,
-        "request_kind": 1
-      }
-    },
-    {
-      "stage": "request_response",
-      "elapsedMilliseconds": 2631,
-      "metrics": {
-        "http_status": 200,
-        "request_id": 2,
-        "request_kind": 1
-      }
-    },
-    {
       "stage": "bridge_snapshot",
-      "elapsedMilliseconds": 2654,
+      "elapsedMilliseconds": 2388,
       "metrics": {
         "assistant_message_present": 0,
         "composer_present": 1,
@@ -138,7 +103,25 @@
     },
     {
       "stage": "request_started",
-      "elapsedMilliseconds": 3419,
+      "elapsedMilliseconds": 2991,
+      "metrics": {
+        "request_has_messages": 0,
+        "request_id": 2,
+        "request_kind": 1
+      }
+    },
+    {
+      "stage": "request_response",
+      "elapsedMilliseconds": 3328,
+      "metrics": {
+        "http_status": 200,
+        "request_id": 2,
+        "request_kind": 1
+      }
+    },
+    {
+      "stage": "request_started",
+      "elapsedMilliseconds": 3716,
       "metrics": {
         "request_has_messages": 0,
         "request_id": 3,
@@ -147,14 +130,14 @@
     },
     {
       "stage": "attachment_dispatched",
-      "elapsedMilliseconds": 3429,
+      "elapsedMilliseconds": 3723,
       "metrics": {
         "attached_count": 1
       }
     },
     {
       "stage": "request_started",
-      "elapsedMilliseconds": 3509,
+      "elapsedMilliseconds": 3777,
       "metrics": {
         "request_has_messages": 0,
         "request_id": 4,
@@ -163,52 +146,16 @@
     },
     {
       "stage": "request_started",
-      "elapsedMilliseconds": 3538,
+      "elapsedMilliseconds": 3795,
       "metrics": {
         "request_has_messages": 0,
         "request_id": 5,
-        "request_kind": 1
-      }
-    },
-    {
-      "stage": "request_response",
-      "elapsedMilliseconds": 3706,
-      "metrics": {
-        "http_status": 200,
-        "request_id": 3,
-        "request_kind": 1
-      }
-    },
-    {
-      "stage": "request_response",
-      "elapsedMilliseconds": 3776,
-      "metrics": {
-        "http_status": 200,
-        "request_id": 5,
-        "request_kind": 1
-      }
-    },
-    {
-      "stage": "request_response",
-      "elapsedMilliseconds": 3877,
-      "metrics": {
-        "http_status": 200,
-        "request_id": 4,
-        "request_kind": 2
-      }
-    },
-    {
-      "stage": "request_started",
-      "elapsedMilliseconds": 3944,
-      "metrics": {
-        "request_has_messages": 0,
-        "request_id": 6,
         "request_kind": 1
       }
     },
     {
       "stage": "bridge_snapshot",
-      "elapsedMilliseconds": 4057,
+      "elapsedMilliseconds": 3840,
       "metrics": {
         "assistant_message_present": 0,
         "composer_present": 1,
@@ -225,37 +172,55 @@
     },
     {
       "stage": "request_response",
-      "elapsedMilliseconds": 4148,
+      "elapsedMilliseconds": 3960,
       "metrics": {
         "http_status": 200,
-        "request_id": 6,
+        "request_id": 4,
+        "request_kind": 2
+      }
+    },
+    {
+      "stage": "request_response",
+      "elapsedMilliseconds": 4125,
+      "metrics": {
+        "http_status": 200,
+        "request_id": 5,
+        "request_kind": 1
+      }
+    },
+    {
+      "stage": "request_response",
+      "elapsedMilliseconds": 4437,
+      "metrics": {
+        "http_status": 200,
+        "request_id": 3,
         "request_kind": 1
       }
     },
     {
       "stage": "attachment_ready",
-      "elapsedMilliseconds": 4207,
+      "elapsedMilliseconds": 4457,
       "metrics": {
         "attached_count": 1
       }
     },
     {
       "stage": "request_started",
-      "elapsedMilliseconds": 4267,
+      "elapsedMilliseconds": 4494,
       "metrics": {
         "request_has_messages": 0,
-        "request_id": 7,
+        "request_id": 6,
         "request_kind": 2
       }
     },
     {
       "stage": "send_attempted",
-      "elapsedMilliseconds": 4324,
+      "elapsedMilliseconds": 4554,
       "metrics": {}
     },
     {
       "stage": "bridge_snapshot",
-      "elapsedMilliseconds": 4764,
+      "elapsedMilliseconds": 4559,
       "metrics": {
         "assistant_message_present": 0,
         "composer_present": 1,
@@ -271,17 +236,35 @@
       }
     },
     {
+      "stage": "request_started",
+      "elapsedMilliseconds": 4567,
+      "metrics": {
+        "request_has_messages": 0,
+        "request_id": 7,
+        "request_kind": 1
+      }
+    },
+    {
       "stage": "request_response",
-      "elapsedMilliseconds": 4889,
+      "elapsedMilliseconds": 4741,
       "metrics": {
         "http_status": 200,
         "request_id": 7,
+        "request_kind": 1
+      }
+    },
+    {
+      "stage": "request_response",
+      "elapsedMilliseconds": 4845,
+      "metrics": {
+        "http_status": 200,
+        "request_id": 6,
         "request_kind": 2
       }
     },
     {
       "stage": "request_started",
-      "elapsedMilliseconds": 6315,
+      "elapsedMilliseconds": 7606,
       "metrics": {
         "request_has_messages": 1,
         "request_id": 8,
@@ -289,40 +272,22 @@
       }
     },
     {
+      "stage": "request_started",
+      "elapsedMilliseconds": 7749,
+      "metrics": {
+        "request_has_messages": 0,
+        "request_id": 9,
+        "request_kind": 1
+      }
+    },
+    {
       "stage": "send_observed",
-      "elapsedMilliseconds": 6352,
+      "elapsedMilliseconds": 7811,
       "metrics": {}
     },
     {
-      "stage": "request_started",
-      "elapsedMilliseconds": 6503,
-      "metrics": {
-        "request_has_messages": 0,
-        "request_id": 9,
-        "request_kind": 1
-      }
-    },
-    {
-      "stage": "request_response",
-      "elapsedMilliseconds": 6844,
-      "metrics": {
-        "http_status": 200,
-        "request_id": 9,
-        "request_kind": 1
-      }
-    },
-    {
-      "stage": "request_started",
-      "elapsedMilliseconds": 6847,
-      "metrics": {
-        "request_has_messages": 0,
-        "request_id": 10,
-        "request_kind": 1
-      }
-    },
-    {
       "stage": "bridge_snapshot",
-      "elapsedMilliseconds": 6872,
+      "elapsedMilliseconds": 8071,
       "metrics": {
         "assistant_message_present": 0,
         "composer_present": 1,
@@ -334,21 +299,30 @@
         "send_present": 0,
         "stop_present": 1,
         "uploading_count": 0,
-        "user_message_present": 0
+        "user_message_present": 1
       }
     },
     {
       "stage": "request_response",
-      "elapsedMilliseconds": 7161,
+      "elapsedMilliseconds": 8197,
       "metrics": {
         "http_status": 200,
+        "request_id": 9,
+        "request_kind": 1
+      }
+    },
+    {
+      "stage": "request_started",
+      "elapsedMilliseconds": 8206,
+      "metrics": {
+        "request_has_messages": 0,
         "request_id": 10,
         "request_kind": 1
       }
     },
     {
       "stage": "request_response",
-      "elapsedMilliseconds": 7174,
+      "elapsedMilliseconds": 8955,
       "metrics": {
         "http_status": 200,
         "request_id": 8,
@@ -356,8 +330,34 @@
       }
     },
     {
+      "stage": "request_response",
+      "elapsedMilliseconds": 9224,
+      "metrics": {
+        "http_status": 200,
+        "request_id": 10,
+        "request_kind": 1
+      }
+    },
+    {
+      "stage": "bridge_snapshot",
+      "elapsedMilliseconds": 10271,
+      "metrics": {
+        "assistant_message_present": 1,
+        "composer_present": 1,
+        "generation_active": 1,
+        "input_count": 8,
+        "preview_count": 0,
+        "prompt_length": 0,
+        "send_enabled": 0,
+        "send_present": 0,
+        "stop_present": 1,
+        "uploading_count": 0,
+        "user_message_present": 1
+      }
+    },
+    {
       "stage": "request_started",
-      "elapsedMilliseconds": 23171,
+      "elapsedMilliseconds": 15917,
       "metrics": {
         "request_has_messages": 0,
         "request_id": 11,
@@ -366,7 +366,7 @@
     },
     {
       "stage": "request_started",
-      "elapsedMilliseconds": 23185,
+      "elapsedMilliseconds": 15928,
       "metrics": {
         "request_has_messages": 0,
         "request_id": 12,
@@ -374,19 +374,10 @@
       }
     },
     {
-      "stage": "request_response",
-      "elapsedMilliseconds": 23729,
-      "metrics": {
-        "http_status": 200,
-        "request_id": 11,
-        "request_kind": 2
-      }
-    },
-    {
       "stage": "bridge_snapshot",
-      "elapsedMilliseconds": 23774,
+      "elapsedMilliseconds": 15981,
       "metrics": {
-        "assistant_message_present": 0,
+        "assistant_message_present": 1,
         "composer_present": 1,
         "generation_active": 0,
         "input_count": 8,
@@ -396,14 +387,32 @@
         "send_present": 1,
         "stop_present": 0,
         "uploading_count": 0,
-        "user_message_present": 0
+        "user_message_present": 1
+      }
+    },
+    {
+      "stage": "request_response",
+      "elapsedMilliseconds": 16092,
+      "metrics": {
+        "http_status": 200,
+        "request_id": 12,
+        "request_kind": 2
+      }
+    },
+    {
+      "stage": "request_response",
+      "elapsedMilliseconds": 16426,
+      "metrics": {
+        "http_status": 200,
+        "request_id": 11,
+        "request_kind": 2
       }
     },
     {
       "stage": "bridge_snapshot",
-      "elapsedMilliseconds": 24477,
+      "elapsedMilliseconds": 16687,
       "metrics": {
-        "assistant_message_present": 0,
+        "assistant_message_present": 1,
         "composer_present": 1,
         "generation_active": 0,
         "input_count": 8,
@@ -413,32 +422,473 @@
         "send_present": 0,
         "stop_present": 0,
         "uploading_count": 0,
-        "user_message_present": 0
+        "user_message_present": 1
       }
     },
     {
-      "stage": "request_response",
-      "elapsedMilliseconds": 25368,
+      "stage": "generation_completed",
+      "elapsedMilliseconds": 17390,
       "metrics": {
-        "http_status": 200,
-        "request_id": 12,
-        "request_kind": 2
+        "response_length": 234
       }
     },
     {
-      "stage": "generation_failed",
-      "elapsedMilliseconds": 125756,
-      "metrics": {}
+      "stage": "result_applied",
+      "elapsedMilliseconds": 17412,
+      "metrics": {
+        "response_length": 234
+      }
     },
     {
-      "stage": "run_failed",
-      "elapsedMilliseconds": 125764,
+      "stage": "run_completed",
+      "elapsedMilliseconds": 17419,
       "metrics": {}
-    },
+    }
+  ],
+  "historicalCandidates": [
     {
-      "stage": "run_failed",
-      "elapsedMilliseconds": 125771,
-      "metrics": {}
+      "observedAtKST": "2026-10-17 10:31-10:33",
+      "sanitized": true,
+      "appVersion": "2.6.7",
+      "appBuild": "202610170954",
+      "provider": "chatgpt",
+      "syntheticMedia": {
+        "count": 1,
+        "kind": "solid-blue"
+      },
+      "status": "submission-confirmed-result-import-failed-at-timeout",
+      "evidenceBoundary": "Three read-only device diagnostics copies. Diagnostics record generation_failed at 125756ms and run_failed at 125764/125771ms; no result_applied/run_completed. TM separately observed the 119-second timeout banner. No generated-answer content, prompt text, account, URL, or run identifier retained.",
+      "events": [
+        {
+          "stage": "run_started",
+          "elapsedMilliseconds": 0,
+          "metrics": {}
+        },
+        {
+          "stage": "browser_loaded",
+          "elapsedMilliseconds": 1119,
+          "metrics": {}
+        },
+        {
+          "stage": "composer_reset",
+          "elapsedMilliseconds": 1128,
+          "metrics": {
+            "composer_ready": 0,
+            "reset_clicks": 0,
+            "reset_tiles": 0,
+            "root_present": 0
+          }
+        },
+        {
+          "stage": "bridge_snapshot",
+          "elapsedMilliseconds": 1247,
+          "metrics": {
+            "assistant_message_present": 0,
+            "composer_present": 0,
+            "generation_active": 0,
+            "input_count": 0,
+            "preview_count": 0,
+            "prompt_length": 0,
+            "send_enabled": 0,
+            "send_present": 0,
+            "stop_present": 0,
+            "uploading_count": 0,
+            "user_message_present": 0
+          }
+        },
+        {
+          "stage": "request_started",
+          "elapsedMilliseconds": 1546,
+          "metrics": {
+            "request_has_messages": 0,
+            "request_id": 1,
+            "request_kind": 2
+          }
+        },
+        {
+          "stage": "composer_reset",
+          "elapsedMilliseconds": 1640,
+          "metrics": {
+            "composer_ready": 1,
+            "reset_clicks": 0,
+            "reset_error": 0,
+            "reset_tiles": 0,
+            "root_present": 1
+          }
+        },
+        {
+          "stage": "attachment_started",
+          "elapsedMilliseconds": 1853,
+          "metrics": {
+            "expected_count": 1
+          }
+        },
+        {
+          "stage": "bridge_snapshot",
+          "elapsedMilliseconds": 1960,
+          "metrics": {
+            "assistant_message_present": 0,
+            "composer_present": 1,
+            "generation_active": 0,
+            "input_count": 4,
+            "preview_count": 0,
+            "prompt_length": 0,
+            "send_enabled": 0,
+            "send_present": 1,
+            "stop_present": 0,
+            "uploading_count": 0,
+            "user_message_present": 0
+          }
+        },
+        {
+          "stage": "request_response",
+          "elapsedMilliseconds": 2020,
+          "metrics": {
+            "http_status": 200,
+            "request_id": 1,
+            "request_kind": 2
+          }
+        },
+        {
+          "stage": "request_started",
+          "elapsedMilliseconds": 2308,
+          "metrics": {
+            "request_has_messages": 0,
+            "request_id": 2,
+            "request_kind": 1
+          }
+        },
+        {
+          "stage": "request_response",
+          "elapsedMilliseconds": 2631,
+          "metrics": {
+            "http_status": 200,
+            "request_id": 2,
+            "request_kind": 1
+          }
+        },
+        {
+          "stage": "bridge_snapshot",
+          "elapsedMilliseconds": 2654,
+          "metrics": {
+            "assistant_message_present": 0,
+            "composer_present": 1,
+            "generation_active": 0,
+            "input_count": 4,
+            "preview_count": 0,
+            "prompt_length": 0,
+            "send_enabled": 0,
+            "send_present": 0,
+            "stop_present": 0,
+            "uploading_count": 0,
+            "user_message_present": 0
+          }
+        },
+        {
+          "stage": "request_started",
+          "elapsedMilliseconds": 3419,
+          "metrics": {
+            "request_has_messages": 0,
+            "request_id": 3,
+            "request_kind": 1
+          }
+        },
+        {
+          "stage": "attachment_dispatched",
+          "elapsedMilliseconds": 3429,
+          "metrics": {
+            "attached_count": 1
+          }
+        },
+        {
+          "stage": "request_started",
+          "elapsedMilliseconds": 3509,
+          "metrics": {
+            "request_has_messages": 0,
+            "request_id": 4,
+            "request_kind": 2
+          }
+        },
+        {
+          "stage": "request_started",
+          "elapsedMilliseconds": 3538,
+          "metrics": {
+            "request_has_messages": 0,
+            "request_id": 5,
+            "request_kind": 1
+          }
+        },
+        {
+          "stage": "request_response",
+          "elapsedMilliseconds": 3706,
+          "metrics": {
+            "http_status": 200,
+            "request_id": 3,
+            "request_kind": 1
+          }
+        },
+        {
+          "stage": "request_response",
+          "elapsedMilliseconds": 3776,
+          "metrics": {
+            "http_status": 200,
+            "request_id": 5,
+            "request_kind": 1
+          }
+        },
+        {
+          "stage": "request_response",
+          "elapsedMilliseconds": 3877,
+          "metrics": {
+            "http_status": 200,
+            "request_id": 4,
+            "request_kind": 2
+          }
+        },
+        {
+          "stage": "request_started",
+          "elapsedMilliseconds": 3944,
+          "metrics": {
+            "request_has_messages": 0,
+            "request_id": 6,
+            "request_kind": 1
+          }
+        },
+        {
+          "stage": "bridge_snapshot",
+          "elapsedMilliseconds": 4057,
+          "metrics": {
+            "assistant_message_present": 0,
+            "composer_present": 1,
+            "generation_active": 0,
+            "input_count": 4,
+            "preview_count": 1,
+            "prompt_length": 0,
+            "send_enabled": 1,
+            "send_present": 1,
+            "stop_present": 0,
+            "uploading_count": 1,
+            "user_message_present": 0
+          }
+        },
+        {
+          "stage": "request_response",
+          "elapsedMilliseconds": 4148,
+          "metrics": {
+            "http_status": 200,
+            "request_id": 6,
+            "request_kind": 1
+          }
+        },
+        {
+          "stage": "attachment_ready",
+          "elapsedMilliseconds": 4207,
+          "metrics": {
+            "attached_count": 1
+          }
+        },
+        {
+          "stage": "request_started",
+          "elapsedMilliseconds": 4267,
+          "metrics": {
+            "request_has_messages": 0,
+            "request_id": 7,
+            "request_kind": 2
+          }
+        },
+        {
+          "stage": "send_attempted",
+          "elapsedMilliseconds": 4324,
+          "metrics": {}
+        },
+        {
+          "stage": "bridge_snapshot",
+          "elapsedMilliseconds": 4764,
+          "metrics": {
+            "assistant_message_present": 0,
+            "composer_present": 1,
+            "generation_active": 0,
+            "input_count": 4,
+            "preview_count": 1,
+            "prompt_length": 480,
+            "send_enabled": 0,
+            "send_present": 1,
+            "stop_present": 0,
+            "uploading_count": 2,
+            "user_message_present": 0
+          }
+        },
+        {
+          "stage": "request_response",
+          "elapsedMilliseconds": 4889,
+          "metrics": {
+            "http_status": 200,
+            "request_id": 7,
+            "request_kind": 2
+          }
+        },
+        {
+          "stage": "request_started",
+          "elapsedMilliseconds": 6315,
+          "metrics": {
+            "request_has_messages": 1,
+            "request_id": 8,
+            "request_kind": 2
+          }
+        },
+        {
+          "stage": "send_observed",
+          "elapsedMilliseconds": 6352,
+          "metrics": {}
+        },
+        {
+          "stage": "request_started",
+          "elapsedMilliseconds": 6503,
+          "metrics": {
+            "request_has_messages": 0,
+            "request_id": 9,
+            "request_kind": 1
+          }
+        },
+        {
+          "stage": "request_response",
+          "elapsedMilliseconds": 6844,
+          "metrics": {
+            "http_status": 200,
+            "request_id": 9,
+            "request_kind": 1
+          }
+        },
+        {
+          "stage": "request_started",
+          "elapsedMilliseconds": 6847,
+          "metrics": {
+            "request_has_messages": 0,
+            "request_id": 10,
+            "request_kind": 1
+          }
+        },
+        {
+          "stage": "bridge_snapshot",
+          "elapsedMilliseconds": 6872,
+          "metrics": {
+            "assistant_message_present": 0,
+            "composer_present": 1,
+            "generation_active": 1,
+            "input_count": 8,
+            "preview_count": 0,
+            "prompt_length": 0,
+            "send_enabled": 0,
+            "send_present": 0,
+            "stop_present": 1,
+            "uploading_count": 0,
+            "user_message_present": 0
+          }
+        },
+        {
+          "stage": "request_response",
+          "elapsedMilliseconds": 7161,
+          "metrics": {
+            "http_status": 200,
+            "request_id": 10,
+            "request_kind": 1
+          }
+        },
+        {
+          "stage": "request_response",
+          "elapsedMilliseconds": 7174,
+          "metrics": {
+            "http_status": 200,
+            "request_id": 8,
+            "request_kind": 2
+          }
+        },
+        {
+          "stage": "request_started",
+          "elapsedMilliseconds": 23171,
+          "metrics": {
+            "request_has_messages": 0,
+            "request_id": 11,
+            "request_kind": 2
+          }
+        },
+        {
+          "stage": "request_started",
+          "elapsedMilliseconds": 23185,
+          "metrics": {
+            "request_has_messages": 0,
+            "request_id": 12,
+            "request_kind": 2
+          }
+        },
+        {
+          "stage": "request_response",
+          "elapsedMilliseconds": 23729,
+          "metrics": {
+            "http_status": 200,
+            "request_id": 11,
+            "request_kind": 2
+          }
+        },
+        {
+          "stage": "bridge_snapshot",
+          "elapsedMilliseconds": 23774,
+          "metrics": {
+            "assistant_message_present": 0,
+            "composer_present": 1,
+            "generation_active": 0,
+            "input_count": 8,
+            "preview_count": 0,
+            "prompt_length": 0,
+            "send_enabled": 0,
+            "send_present": 1,
+            "stop_present": 0,
+            "uploading_count": 0,
+            "user_message_present": 0
+          }
+        },
+        {
+          "stage": "bridge_snapshot",
+          "elapsedMilliseconds": 24477,
+          "metrics": {
+            "assistant_message_present": 0,
+            "composer_present": 1,
+            "generation_active": 0,
+            "input_count": 8,
+            "preview_count": 0,
+            "prompt_length": 0,
+            "send_enabled": 0,
+            "send_present": 0,
+            "stop_present": 0,
+            "uploading_count": 0,
+            "user_message_present": 0
+          }
+        },
+        {
+          "stage": "request_response",
+          "elapsedMilliseconds": 25368,
+          "metrics": {
+            "http_status": 200,
+            "request_id": 12,
+            "request_kind": 2
+          }
+        },
+        {
+          "stage": "generation_failed",
+          "elapsedMilliseconds": 125756,
+          "metrics": {}
+        },
+        {
+          "stage": "run_failed",
+          "elapsedMilliseconds": 125764,
+          "metrics": {}
+        },
+        {
+          "stage": "run_failed",
+          "elapsedMilliseconds": 125771,
+          "metrics": {}
+        }
+      ]
     }
   ]
 }
