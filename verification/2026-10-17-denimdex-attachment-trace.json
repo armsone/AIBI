@@ -1,0 +1,17 @@
+{
+  "observedAtKST":"2026-10-17 09:37-09:39",
+  "syntheticMedia":{"count":1,"width":512,"height":512,"kind":"solid-blue"},
+  "appVersion":"0.3.4",
+  "appBuild":"202610170859",
+  "osVersion":"27.0.1",
+  "observations":[
+    {"stage":"composer_found","atMs":2134,"composer_present":1},
+    {"stage":"attachment_dispatched","atMs":2941,"attached_count":1},
+    {"stage":"attachment_timeout","atMs":33993,"expected_count":1,"preview_count":0},
+    {"stage":"attachment_dispatched","atMs":35493,"attached_count":1},
+    {"stage":"attachment_timeout","atMs":65802,"expected_count":1,"preview_count":0},
+    {"stage":"attachment_failed","atMs":65812,"expected_count":1},
+    {"stage":"bridge_snapshot","composer_present":1,"input_count":4,"preview_count":0,"uploading_count":0,"prompt_length":0,"send_present":1,"send_enabled":1,"assistant_message_present":0,"user_message_present":0}
+  ],
+  "interpretation":"Both native and fallback reported dispatch but no preview was recognized. Dispatch does not prove usable attachment. No prompt/user message or answer observed. Composer root/selector vs actual upload cause still unknown."
+}

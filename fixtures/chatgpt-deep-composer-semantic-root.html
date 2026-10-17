@@ -1,0 +1,134 @@
+<!--
+sanitized: true
+synthetic: true
+physical-device-evidence: false
+provider-class: chatgpt (usesSemanticComposerRoot)
+source: verification/2026-10-17-chatgpt-current-structure.md (official-page DOM observation, no content retained)
+covers: semanticComposerRoot() in Stargram ExternalAIBrowserView.swift observerScript, and the strict
+        closed-sidebar toggle selector in openChatGPTSidebarScript().
+Each scenario is an inert <template>; clone one into an empty document to exercise it.
+-->
+<!DOCTYPE html>
+<html lang="ko">
+<head><meta charset="utf-8"><title>ChatGPT deep composer semantic root</title></head>
+<body>
+<h1>ChatGPT deep composer scenarios (synthetic)</h1>
+
+<!-- A: observed shape. Editor ancestors 1-4 hold no buttons; ancestor 5 holds the one editor,
+     the unique 파일 등 추가 button, and model/voice buttons. No form, no send while empty.
+     Expected: root = ancestor 5 (data-fx="root"), not the fixed 3rd ancestor. Voice is never send. -->
+<template id="A-observed-deep-composer">
+  <main>
+    <div data-fx="root">
+      <div><div><div>
+        <div id="" role="textbox" contenteditable="true" aria-label="입력"></div>
+      </div></div></div>
+      <button type="button" aria-label="파일 등 추가">+</button>
+      <button type="button" aria-label="모델 선택">모델</button>
+      <button type="button" aria-label="음성 모드 시작">음성</button>
+    </div>
+  </main>
+</template>
+
+<!-- B: same as A after two photos are attached. Previews sit beside the editor wrapper (inside the
+     semantic root, outside the fixed 3rd ancestor). Send appears and is unique.
+     Expected: root unchanged; attachmentCount() = 2 (exact), send = the 프롬프트 보내기 button only. -->
+<template id="B-two-previews-with-send">
+  <main>
+    <div data-fx="root">
+      <div data-testid="attachment-strip">
+        <div data-testid="attachment-tile"><button type="button" aria-label="첨부 제거">x</button></div>
+        <div data-testid="attachment-tile"><button type="button" aria-label="첨부 제거">x</button></div>
+      </div>
+      <div><div><div><div id="" role="textbox" contenteditable="true"></div></div></div></div>
+      <button type="button" aria-label="파일 등 추가">+</button>
+      <button type="button" aria-label="음성 모드 시작">음성</button>
+      <button type="button" id="composer-submit-button" aria-label="프롬프트 보내기">↑</button>
+    </div>
+  </main>
+</template>
+
+<!-- C: history boundary. The nearest ancestor with a semantic control also contains an assistant turn.
+     Expected: history inside the candidate is a hard rejection, including legacy fallback.
+     History outside a separately bounded composer does not reject that composer. -->
+<template id="C-history-boundary">
+  <main>
+    <section><div data-message-author-role="assistant">sanitized</div></section>
+    <div data-fx="would-be-root">
+      <div><div><div><div role="textbox" contenteditable="true"></div></div></div></div>
+      <button type="button" aria-label="파일 등 추가">+</button>
+    </div>
+  </main>
+  <!-- note: here both nodes are siblings under <main>; the would-be-root itself has no history, so it
+       is accepted. To get the rejection, nest the history turn inside it: -->
+  <main>
+    <div data-fx="would-be-root-with-history">
+      <div data-message-author-role="assistant">sanitized</div>
+      <div><div><div><div role="textbox" contenteditable="true"></div></div></div></div>
+      <button type="button" aria-label="파일 등 추가">+</button>
+    </div>
+  </main>
+</template>
+
+<!-- D: multi-input ambiguity. A second visible editor shares the ancestor that holds the attach button.
+     Expected: null (editors.length !== 1), no guessed root. -->
+<template id="D-two-visible-editors">
+  <main>
+    <div data-fx="ambiguous">
+      <div><div><div role="textbox" contenteditable="true"></div></div></div>
+      <div role="textbox" contenteditable="true"></div>
+      <button type="button" aria-label="파일 등 추가">+</button>
+    </div>
+  </main>
+</template>
+
+<!-- E: control ambiguity. Two visible attach buttons in the first controlled ancestor.
+     Expected: null. -->
+<template id="E-two-attach-buttons">
+  <main>
+    <div data-fx="ambiguous">
+      <div><div><div role="textbox" contenteditable="true"></div></div></div>
+      <button type="button" aria-label="파일 등 추가">+</button>
+      <button type="button" aria-label="사진 추가">+</button>
+    </div>
+  </main>
+</template>
+
+<!-- F: voice only, no attach/send semantics. Expected: null (voice is never send); legacy fallback only
+     if safe. Generic unlabeled buttons are not semantic controls. -->
+<template id="F-voice-and-generic-only">
+  <main>
+    <div>
+      <div><div><div role="textbox" contenteditable="true"></div></div></div>
+      <button type="button" aria-label="음성 모드 시작">음성</button>
+      <button type="button">?</button>
+    </div>
+  </main>
+</template>
+
+<!-- G: depth bound. Controls exist only 9+ ancestors up. Expected: null (max depth 8), never body/html. -->
+
+<!-- Sidebar toggle scenarios for openChatGPTSidebarScript() -->
+<template id="S1-closed-toggle">
+  <button aria-label="사이드바 표시/숨기기" aria-controls="app-shell-sidebar" aria-expanded="false"></button>
+  <!-- Expected: clicked once (unique visible candidate). -->
+</template>
+<template id="S2-open-toggle">
+  <button aria-label="사이드바 표시/숨기기" aria-controls="app-shell-sidebar" aria-expanded="true"></button>
+  <!-- Expected: not clicked (expanded=true does not match; no close toggle). -->
+</template>
+<template id="S3-wrong-controls-or-label">
+  <button aria-label="사이드바 표시/숨기기" aria-controls="other" aria-expanded="false"></button>
+  <button aria-label="메뉴" aria-controls="app-shell-sidebar" aria-expanded="false"></button>
+  <!-- Expected: not clicked. -->
+</template>
+<template id="S4-duplicate-closed-toggle">
+  <button aria-label="사이드바 표시/숨기기" aria-controls="app-shell-sidebar" aria-expanded="false"></button>
+  <button aria-label="사이드바 표시/숨기기" aria-controls="app-shell-sidebar" aria-expanded="false"></button>
+  <!-- Expected: not clicked (ambiguous). -->
+</template>
+</body>
+</html>
+
+<!-- User-only history must also hard reject before the first assistant reply. -->
+<template id="user-only-history"><div><div data-message-author-role="user">synthetic</div><div role="textbox" contenteditable="true"></div><button aria-label="파일 등 추가">+</button></div></template>

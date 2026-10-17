@@ -1,0 +1,58 @@
+<!--
+sanitized: true
+provider-class: chatgpt-mobile-375x667-sidebar-control
+scenario: official mobile ChatGPT (375x667) closed-sidebar opening control, five synthetic states
+  stacked in one file for readability (a real page never shows all of them at once)
+covers: ExternalAIBrowserScripts.openChatGPTSidebarScript() (Apple) and sidebarOpenScript(OPEN_AI) (Android)
+basis: verification/2026-10-17-chatgpt-current-structure.md (10:04 KST entry). Only the observed native
+  BUTTON aria-label="사이드바 보기", aria-controls="browser-sidebar-popover", aria-expanded="false" and the
+  aria-hidden/hidden-ancestor clone pattern are reproduced. No English label is claimed for the mobile control.
+expected:
+  - state "mobile-closed-correct": exactly one visible matching control; clicked once
+  - state "mobile-mismatched-controls": wrong aria-controls, aria-expanded="true", or wrong label;
+    nothing matches the strict selector, so nothing is clicked
+  - state "mobile-already-open": the only control has aria-expanded="true"; never clicked
+  - state "mobile-hidden-clone-plus-visible": one clone under an aria-hidden="true" ancestor with a
+    hidden parent and one accessible visible control; the clone is excluded, the visible one clicked once
+  - state "mobile-visible-duplicates": two visible matching controls; ambiguous, neither clicked
+no prompt text, answer text, real account identifier, cookie, token, or photo content is present.
+-->
+<html>
+  <body>
+    <div id="state-mobile-closed-correct">
+      <header>
+        <button aria-label="사이드바 보기" aria-controls="browser-sidebar-popover" aria-expanded="false">☰</button>
+      </header>
+    </div>
+
+    <div id="state-mobile-mismatched-controls">
+      <header>
+        <button aria-label="사이드바 보기" aria-controls="other-menu" aria-expanded="false">☰</button>
+        <button aria-label="사이드바 보기" aria-controls="browser-sidebar-popover" aria-expanded="true">☰</button>
+        <button aria-label="메뉴 보기" aria-controls="browser-sidebar-popover" aria-expanded="false">☰</button>
+      </header>
+    </div>
+
+    <div id="state-mobile-already-open">
+      <header>
+        <button aria-label="사이드바 보기" aria-controls="browser-sidebar-popover" aria-expanded="true">☰</button>
+      </header>
+    </div>
+
+    <div id="state-mobile-hidden-clone-plus-visible">
+      <div aria-hidden="true" style="visibility:hidden">
+        <button aria-label="사이드바 보기" aria-controls="browser-sidebar-popover" aria-expanded="false">☰</button>
+      </div>
+      <header>
+        <button aria-label="사이드바 보기" aria-controls="browser-sidebar-popover" aria-expanded="false">☰</button>
+      </header>
+    </div>
+
+    <div id="state-mobile-visible-duplicates">
+      <header>
+        <button aria-label="사이드바 보기" aria-controls="browser-sidebar-popover" aria-expanded="false">☰</button>
+        <button aria-label="사이드바 보기" aria-controls="browser-sidebar-popover" aria-expanded="false">☰</button>
+      </header>
+    </div>
+  </body>
+</html>

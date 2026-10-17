@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>literal-newline-preservation fixture</title>
+</head>
+<body>
+<!--
+  Sanitized static fixture for literalHTML newline handling.
+  Each <section> holds one input variant and the expected <br>-joined output
+  when processed by: String(input).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\r\n?|\n/g,'<br>')
+-->
+
+<section data-case="actual-lf">
+  <pre data-input>line one
+line two
+line three</pre>
+  <div data-expected-html="line one&lt;br&gt;line two&lt;br&gt;line three"></div>
+</section>
+
+<section data-case="actual-crlf">
+  <pre data-input>alpha&#13;
+beta&#13;
+gamma</pre>
+  <div data-expected-html="alpha&lt;br&gt;beta&lt;br&gt;gamma"></div>
+</section>
+
+<section data-case="literal-backslash-n">
+  <pre data-input>first\nsecond\nthird</pre>
+  <div data-expected-html="first\nsecond\nthird"></div>
+</section>
+
+<section data-case="mixed-markup-and-actual-newline">
+  <pre data-input>&lt;b&gt;bold&lt;/b&gt; then
+next line with &amp; ampersand</pre>
+  <div data-expected-html="&amp;lt;b&amp;gt;bold&amp;lt;/b&amp;gt; then&lt;br&gt;next line with &amp;amp; ampersand"></div>
+</section>
+
+</body>
+</html>

@@ -7,7 +7,7 @@
 Stargram Apple and Android are registered in `consumers/imanager.json`; the profile identifier remains `imanager` for compatibility.
 
 - Apple receives the host-adapted browser, media pipeline, and diagnostic store.
-- Android receives isolated runtime, media, security, cleaner, timing, authentication, and diagnostic adapters. Compose UI, `ComposerScreen`, and the host result sink remain app-owned and are not overwritten by the sync tool.
+- Android receives isolated runtime, media, security, cleaner, timing, authentication, and diagnostic adapters. The host-adapted `ExternalAISurface.kt` is also registered for renderer lifecycle maintenance. `ComposerScreen` and the host result sink remain app-owned and are not overwritten by the sync tool.
 - DenimDex Apple and Android retain their split native host engines; their runtime, providers and host-adapted diagnostic/session files are registered separately.
 
 ## Commands
@@ -36,3 +36,13 @@ The first `apply` adopts an existing file only when it already equals the distri
 7. Record the verification level under `verification/` and synchronize the installed Codex AIBI skill.
 
 The sync tool does not run builds, devices, Git commands, or releases. Those remain explicit verification and delivery steps in the affected app repository.
+
+## Current Barobogi host (0.5.4)
+
+`consumers/mailtranslator.json` now points to `../Barobogi-MacOS`, where mail and screen translation share the current native AIBI runner. The standalone MailTranslator checkout is historical. Refresh distribution snapshots from the current host project first; do not copy historical standalone files over this host. Existing app-specific modifications remain owned by that app.
+
+Barobogi iOS currently uses its own Google/DeepL browser adapter; Windows currently uses a local model rather than the common AI-site runtime. Do not silently install the common runtime into either path or claim provider parity.
+
+## Provider structure verification (0.5.4)
+
+The 2026-10-17 ChatGPT mobile control, deep composer and current image-preview changes are backed by sanitized official-page observations and static fixtures. DenimDex iOS completed a one-image task through attachment confirmation, one observed submission, stable response and host commit. Each other native host still needs its own stated verification level. Mac mail-specific runtime policies remain in its profile; portable composer changes must be merged without replacing those policies.

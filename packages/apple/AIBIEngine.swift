@@ -841,7 +841,7 @@ public final class AIBISession: NSObject, ObservableObject {
             // refilling text only, or opening a fresh browser could duplicate or strip the
             // request, so end with a clear failure and a concrete user action instead.
             log("send_timeout", ["attempt": submitAttemptCount, "attachment_verified": 1])
-            failWithError("The prompt was sent, but no response started within the time limit. Check the provider page for the sent message, then share the AI diagnostics log from Settings and try again.")
+            failPreservingBrowser("The prompt was sent, but no response started within the time limit. Check the provider page for the sent message, then share the AI diagnostics log from Settings and try again.")
         } else {
             // Nothing was dispatched: prompt and attachments are still in the composer, so the
             // visible browser can take over safely without a text-only resend.
@@ -933,7 +933,7 @@ public final class AIBISession: NSObject, ObservableObject {
                    Date().timeIntervalSince(started) > self.timingProfile.observationTimeout {
                     timer.invalidate()
                     self.log("generation_failed", ["generation_active": 0, "stable_samples": self.stabilityTickCount])
-                    self.failWithError("No answer arrived within the time limit. Check the provider page, then try again.")
+                    self.failPreservingBrowser("No answer arrived within the time limit. The current screen was preserved — check it, then try again.")
                     return
                 }
 
@@ -1046,6 +1046,8 @@ public final class AIBISession: NSObject, ObservableObject {
             case .failure(let err):
                 // Only the outcome is recorded; the host's error text never enters the log.
                 log("response_rejected", ["response_length": result.cleanedText.count])
+                // The rejected answer is already on the page; surface it instead of leaving it hidden.
+                if !isVisibleBrowserPresented { promoteHiddenBrowserToVisible() }
                 updatePhase(.failed, message: "Host import validation failed: \(err.localizedDescription)")
             }
         } else {
@@ -1066,6 +1068,19 @@ public final class AIBISession: NSObject, ObservableObject {
         log("run_failed")
         updatePhase(.failed, message: message)
         destroyHiddenBrowser()
+    }
+
+    /// Same terminal transition as failWithError, but a conversation already exists on the page
+    /// (a sent prompt or a generated answer) that the user may still need to see, so the running
+    /// WebView is promoted instead of destroyed.
+    private func failPreservingBrowser(_ message: String) {
+        stopAllTimers()
+        generationId &+= 1
+        clearPendingAttachmentFiles()
+        self.lastErrorMessage = message
+        log("run_failed")
+        if !isVisibleBrowserPresented { promoteHiddenBrowserToVisible() }
+        updatePhase(.failed, message: message)
     }
 
     private func escalateToVisible(reason: AIBIFallbackReason) {
@@ -1123,6 +1138,23 @@ public final class AIBISession: NSObject, ObservableObject {
             webView.uiDelegate = self
             self.visibleWebView = webView
         }
+        self.isVisibleBrowserPresented = true
+    }
+
+    /// Reuses the exact WKWebView that was running hidden automation instead of creating a fresh
+    /// one, because a fresh WebView or a reload to initialUrl would discard the conversation
+    /// (sent prompt or generated answer) this task already produced on the page.
+    private func promoteHiddenBrowserToVisible() {
+        guard let hiddenWebView else {
+            presentVisibleBrowser()
+            return
+        }
+        hiddenWebView.removeFromSuperview()
+        hiddenWebView.isUserInteractionEnabled = true
+        hiddenWebView.accessibilityElementsHidden = false
+        hiddenWebView.frame = .zero
+        self.visibleWebView = hiddenWebView
+        self.hiddenWebView = nil
         self.isVisibleBrowserPresented = true
     }
 
@@ -1282,6 +1314,13 @@ extension AIBISession: WKNavigationDelegate {
         log("browser_load_failed")
         let sanitized = "Network error: \(nsError.localizedDescription)"
         failWithError(sanitized)
+    }
+
+    /// WebKit silently kills the WebContent process without calling didFail/didFailProvisionalNavigation, so this must invalidate the run the same way other terminal failures do.
+    public func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
+        guard webView === hiddenWebView || webView === visibleWebView else { return }
+        log("browser_load_failed")
+        failWithError("The browser was interrupted. Please try again.")
     }
 }
 

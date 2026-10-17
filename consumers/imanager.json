@@ -85,6 +85,11 @@
           "source": "profiles/imanager/distribution/android/ExternalAIDiagnosticsStore.kt",
           "destination": "app/src/main/java/com/armsone/imanagerai/ui/externalai/ExternalAIDiagnosticsStore.kt",
           "scope": "privacy-safe-diagnostics"
+        },
+        {
+          "source": "profiles/imanager/distribution/android/ExternalAISurface.kt",
+          "destination": "app/src/main/java/com/armsone/imanagerai/ui/externalai/ExternalAISurface.kt",
+          "scope": "host-adapted-runtime"
         }
       ]
     }

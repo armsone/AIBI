@@ -18,6 +18,7 @@ object ExternalAIScripts {
         val allowAncestorSearch = provider == DirectAIProvider.GEMINI || provider == DirectAIProvider.CLAUDE
         val isGemini = provider == DirectAIProvider.GEMINI
         val isClaude = provider == DirectAIProvider.CLAUDE
+        val useSemanticRoot = provider == DirectAIProvider.OPEN_AI
         return """
             function visible(el) {
                 if (!el) return false;
@@ -51,6 +52,55 @@ object ExternalAIScripts {
                 } else if(p && isSafeComposerRoot(p)) {
                     composer=p;
                 }
+            }
+            // ChatGPT form-less editor: nearest bounded ancestor with one editor and one semantic attach/send control.
+            // Ambiguity (several editors or controls) rejects the composer instead of widening or falling back.
+            var useSemanticRoot=$useSemanticRoot;
+            var semanticAttachPattern=/attach|첨부|파일 등 추가|add (photos|files)|upload|업로드|사진/i;
+            var semanticExcludedPattern=/stop|중지|정지|중단|voice|음성|dictat|받아쓰기|model|모델|remove|delete|close|삭제|제거|닫기/i;
+            function semanticMeaning(el) {
+                return [el.getAttribute('aria-label')||'',el.getAttribute('data-testid')||'',el.getAttribute('title')||''].join(' ');
+            }
+            function semanticAttachCandidates(root) {
+                var selectors=${config.attachTrigger}.concat(["button[aria-label='파일 등 추가']"]), found=[];
+                for(var i=0;i<selectors.length;i++) {
+                    try {
+                        var nodes=root.querySelectorAll(selectors[i]);
+                        for(var j=0;j<nodes.length;j++) {
+                            var el=nodes[j], meaning=semanticMeaning(el);
+                            if(found.indexOf(el)!==-1 || !visible(el)) continue;
+                            if(semanticAttachPattern.test(meaning) && !semanticExcludedPattern.test(meaning)) found.push(el);
+                        }
+                    } catch(_) {}
+                }
+                return found;
+            }
+            function visibleEditorCount(root) {
+                var selectors=${config.input}, found=[];
+                for(var i=0;i<selectors.length;i++) {
+                    try {
+                        var nodes=root.querySelectorAll(selectors[i]);
+                        for(var j=0;j<nodes.length;j++) if(visible(nodes[j]) && found.indexOf(nodes[j])===-1) found.push(nodes[j]);
+                    } catch(_) {}
+                }
+                return found.length;
+            }
+            // Returns the root, null when none is found within 6 ancestors, or false when ambiguous.
+            function semanticComposerRoot() {
+                var node=input.parentElement;
+                for(var depth=0; node && depth<6; depth++, node=node.parentElement) {
+                    if(!isSafeComposerRoot(node)) return null;
+                    if(visibleEditorCount(node)!==1) return false;
+                    var attachCount=semanticAttachCandidates(node).length, sendCount=findSendCandidates(node).length;
+                    if(attachCount>1 || sendCount>1) return false;
+                    if(attachCount+sendCount>0) return node;
+                }
+                return null;
+            }
+            if(useSemanticRoot && input && !input.closest('form')) {
+                var semanticRoot=semanticComposerRoot();
+                if(semanticRoot===false) composer=null;
+                else if(semanticRoot) composer=semanticRoot;
             }
             var validatedFallback=false;
             function findSendCandidates(root) {
@@ -792,7 +842,9 @@ object ExternalAIScripts {
 
                         var inserted = false;
                         try {
-                            inserted = document.execCommand('insertText', false, text);
+                            // insertText 는 스마트 따옴표 치환이 일어날 수 있어 마크업을 이스케이프한 리터럴 HTML 로 입력한다.
+                            var literalHTML = String(text).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\r\n?|\n/g, '<br>');
+                            inserted = document.execCommand('insertHTML', false, literalHTML);
                         } catch (_) {
                             inserted = false;
                         }
@@ -1041,7 +1093,7 @@ object ExternalAIScripts {
                     }
 
                     if (codeEls.length > 0) {
-                        rawText = codeEls.map(function(c) { return (c.innerText || c.textContent || '').trim(); })
+                        rawText = codeEls.map(function(c) { return (c.textContent || c.innerText || '').trim(); })
                             .filter(Boolean)
                             .join('\n\n');
                     } else {
@@ -1778,6 +1830,7 @@ object ExternalAIScripts {
                     listOf(
                         "button[aria-label*='Attach']",
                         "button[aria-label*='첨부']",
+                        "button[aria-label='파일 등 추가']",
                         "button[data-testid='composer-plus-btn']",
                         "button[aria-label*='Add photos']",
                         "button[aria-label*='사진']"
@@ -1794,6 +1847,7 @@ object ExternalAIScripts {
                         "button[aria-label*='uploaded image' i]",
                         "button[aria-label*='업로드한 이미지']",
                         "img[src*='/backend-api/estuary/content']",
+                        "div[role='button']:has(img):has(> button[aria-label$=' 제거'])",
                         "div[class*='attachment-tile']"
                     )
                 )

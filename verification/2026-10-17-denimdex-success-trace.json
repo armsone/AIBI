@@ -1,0 +1,66 @@
+{
+  "appVersion": "0.3.5",
+  "appBuild": "202610170954",
+  "syntheticImageCount": 1,
+  "observedAtKST": "2026-10-17 10:00",
+  "events": [
+    {
+      "elapsedMilliseconds": 2539,
+      "metrics": {
+        "attached_count": 1
+      },
+      "stage": "attachment_dispatched"
+    },
+    {
+      "elapsedMilliseconds": 3282,
+      "metrics": {
+        "attached_count": 1,
+        "expected_count": 1
+      },
+      "stage": "attachment_ready"
+    },
+    {
+      "elapsedMilliseconds": 4746,
+      "metrics": {
+        "attachment_verified": 1,
+        "attempt": 1
+      },
+      "stage": "send_attempted"
+    },
+    {
+      "elapsedMilliseconds": 5510,
+      "metrics": {
+        "attempt": 1
+      },
+      "stage": "send_attempted"
+    },
+    {
+      "elapsedMilliseconds": 5517,
+      "metrics": {
+        "attempt": 1
+      },
+      "stage": "send_observed"
+    },
+    {
+      "elapsedMilliseconds": 27236,
+      "metrics": {
+        "response_length": 3049,
+        "stable_samples": 3
+      },
+      "stage": "generation_completed"
+    },
+    {
+      "elapsedMilliseconds": 27259,
+      "metrics": {
+        "response_length": 3049
+      },
+      "stage": "result_applied"
+    },
+    {
+      "elapsedMilliseconds": 27264,
+      "metrics": {},
+      "stage": "run_completed"
+    }
+  ],
+  "note": "Native and runtime each record the same send attempt=1; duplicate diagnostic stage entries do not imply a second gesture. Full prompts/answers and provider conversation identifiers excluded."
+}

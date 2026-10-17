@@ -195,22 +195,7 @@ object ExternalAIAuthStatus {
                                     if ((provider == DirectAIProvider.GEMINI ||
                                             provider == DirectAIProvider.OPEN_AI) && pollCount == 0
                                     ) {
-                                        val menuSelector = when (provider) {
-                                            DirectAIProvider.GEMINI -> "button[data-test-id='side-nav-menu-button']"
-                                            DirectAIProvider.OPEN_AI -> "button[data-testid='open-sidebar-button']"
-                                            else -> ""
-                                        }
-                                        wv.evaluateJavascript(
-                                            """
-                                            (function() {
-                                                var button = document.querySelector(${org.json.JSONObject.quote(menuSelector)});
-                                                if (!button) return false;
-                                                button.click();
-                                                return true;
-                                            })();
-                                            """.trimIndent(),
-                                            null
-                                        )
+                                        wv.evaluateJavascript(sidebarOpenScript(provider), null)
                                     }
                                     pollCount++
                                     if (pollCount >= 25) {
@@ -234,6 +219,16 @@ object ExternalAIAuthStatus {
                     // canonical provider page immediately replaces it and hydrates successfully.
                     // Keep the bounded outer timeout authoritative instead of publishing UNKNOWN
                     // on the first transient navigation error.
+                }
+
+                // complete() already guarantees a single release via hasCompleted; a dead
+                // renderer is not logout evidence, so it only resolves as UNKNOWN.
+                override fun onRenderProcessGone(
+                    renderedView: WebView?,
+                    detail: android.webkit.RenderProcessGoneDetail?
+                ): Boolean {
+                    complete(ExternalAIAuthState.UNKNOWN)
+                    return true
                 }
             }
 
@@ -268,10 +263,7 @@ object ExternalAIAuthStatus {
                                 if (provider == DirectAIProvider.OPEN_AI &&
                                     pollCount < 16 && pollCount % 2 == 0
                                 ) {
-                                    webView.evaluateJavascript(
-                                        "document.querySelector(\"button[data-testid='open-sidebar-button']\")?.click();",
-                                        null
-                                    )
+                                    webView.evaluateJavascript(sidebarOpenScript(provider), null)
                                 }
                                 pollCount++
                                 if (pollCount < 28) webView.postDelayed(this, 350L)
@@ -309,4 +301,55 @@ private tailrec fun Context.findActivity(): Activity? = when (this) {
     is Activity -> this
     is ContextWrapper -> baseContext.findActivity()
     else -> null
+}
+
+/**
+ * Opens a closed provider sidebar once so account markers can render. ChatGPT is clicked only when
+ * exactly one visible closed toggle matches (Gemini keeps its single-selector click); an expanded or ambiguous toggle is never clicked.
+ */
+private fun sidebarOpenScript(provider: DirectAIProvider): String {
+    if (provider == DirectAIProvider.GEMINI) {
+        return """
+            (function() {
+                var button = document.querySelector("button[data-test-id='side-nav-menu-button']");
+                if (!button) return false;
+                button.click();
+                return true;
+            })();
+        """.trimIndent()
+    }
+    val selectors = when (provider) {
+        DirectAIProvider.OPEN_AI -> listOf(
+            "button[data-testid='open-sidebar-button']",
+            "button[aria-label='사이드바 표시/숨기기'][aria-controls='app-shell-sidebar'][aria-expanded='false']",
+            "button[aria-label='사이드바 보기'][aria-controls='browser-sidebar-popover'][aria-expanded='false']"
+        )
+        else -> emptyList()
+    }
+    val selectorsJson = org.json.JSONArray(selectors).toString()
+    return """
+        (function() {
+            var selectors = $selectorsJson, matches = [];
+            for (var i = 0; i < selectors.length; i++) {
+                try {
+                    var nodes = document.querySelectorAll(selectors[i]);
+                    for (var j = 0; j < nodes.length; j++) {
+                        var el = nodes[j];
+                        if (matches.indexOf(el) !== -1) continue;
+                        if (el.closest("[aria-hidden='true'], [inert]")) continue;
+                        var shown = true;
+                        for (var node = el; node && node.nodeType === 1; node = node.parentElement) {
+                            var s = getComputedStyle(node);
+                            if (s.display === 'none' || s.visibility === 'hidden' || s.opacity === '0' || node.hidden) { shown = false; break; }
+                        }
+                        var r = el.getBoundingClientRect();
+                        if (shown && r.width > 0 && r.height > 0) matches.push(el);
+                    }
+                } catch (e) {}
+            }
+            if (matches.length !== 1) return false;
+            matches[0].click();
+            return true;
+        })();
+    """.trimIndent()
 }

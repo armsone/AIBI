@@ -8,6 +8,8 @@ import WebKit
 // 제공사 레지스트리(aibi-providers.json)를 사용한다. 이미지 첨부 경로는 이 앱에서 쓰지 않으므로 옮기지 않았다.
 // 로그인·실행 웹 보기는 모두 WKWebsiteDataStore.default()를 공유한다(메일 서식 보기는 별도의 비영구 저장소).
 // 프롬프트·답변·URL·쿠키·원시 오류는 로그나 진단에 남기지 않는다.
+// Barobogi(바로보기) 통합: 메일 어댑터를 그대로 옮기고 호스트 연결만 더했다 — 실행 주인(메일/화면)별 취소,
+// 화면 번역 창 머리글의 숨김 표면 선택, 화면 글자 항목 종류. 선택자·런타임·레지스트리는 바꾸지 않았다.
 
 enum AIProvider: String, CaseIterable, Identifiable {
     case chatgpt, claude, gemini
@@ -160,8 +162,10 @@ final class AIBIWebView: WKWebView {
 final class AIBIHostView: NSView {
     private let cover = AIBICoverView()
 
-    override init(frame: NSRect) {
+    /// coverColor: 덮개를 호스트 배경과 같은 불투명 색으로 칠할 때 지정(기본은 창 배경색)
+    init(frame: NSRect, coverColor: NSColor? = nil) {
         super.init(frame: frame)
+        cover.fixedColor = coverColor
         cover.frame = bounds
         cover.autoresizingMask = [.width, .height]
         addSubview(cover)
@@ -186,11 +190,12 @@ final class AIBIHostView: NSView {
 }
 
 private final class AIBICoverView: NSView {
+    var fixedColor: NSColor?
     override var wantsUpdateLayer: Bool { true }
     override var isOpaque: Bool { true }
     override func updateLayer() {
         effectiveAppearance.performAsCurrentDrawingAppearance {
-            layer?.backgroundColor = NSColor.windowBackgroundColor.cgColor
+            layer?.backgroundColor = (fixedColor?.withAlphaComponent(1) ?? NSColor.windowBackgroundColor).cgColor
         }
     }
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
@@ -223,8 +228,10 @@ final class AIBIHiddenSurface {
     }
 
     /// 보이는 창에 붙어 있는 표면. 없으면 숨김 실행을 하지 않는다.
-    func availableHost() -> AIBIHostView? {
-        hosts.lazy.compactMap(\.view).first { view in
+    /// 우선순위: 호출자가 지정한 표면 → 메일 결과 창 → 가장 최근에 붙은 표면(설정 창 등).
+    func availableHost(preferring preferred: AIBIHostView? = nil) -> AIBIHostView? {
+        let candidates = [preferred, mainHost].compactMap { $0 } + hosts.reversed().compactMap(\.view)
+        return candidates.first { view in
             guard let window = view.window else { return false }
             return window.isVisible && !window.isMiniaturized
         }
@@ -264,6 +271,8 @@ final class AIBINavigationGuard: NSObject, WKNavigationDelegate, WKUIDelegate {
     var onBlocked: (() -> Void)?
     var onFinish: (() -> Void)?
     var onFailure: (() -> Void)?
+    /// 화면 렌더러 프로세스가 끝났을 때(메인 웹 보기만 — 팝업 자식은 closePopup으로 따로 처리).
+    var onProcessTerminated: (() -> Void)?
 
     init(config: AIBIProviderConfig) { self.config = config }
 
@@ -297,6 +306,17 @@ final class AIBINavigationGuard: NSObject, WKNavigationDelegate, WKUIDelegate {
         if nsError.domain == NSURLErrorDomain && nsError.code == NSURLErrorCancelled { return }
         if nsError.domain == "WebKitErrorDomain" && nsError.code == 102 { return }
         onFailure?()
+    }
+
+    /// 팝업(OAuth 자식) 종료는 그 팝업만 닫고 끝낸다 — 건강한 메인 작업을 중단시키지 않는다.
+    /// 메인 웹 보기 종료만 onProcessTerminated로 올린다(식별은 authPopups 등록 여부로 판정).
+    func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
+        let key = ObjectIdentifier(webView)
+        if authPopups[key] != nil {
+            closePopup(key)
+            return
+        }
+        onProcessTerminated?()
     }
 
     private struct AuthPopup {
@@ -419,6 +439,12 @@ enum AIBIOutcome {
 /// 결과 sink: nil이면 적용 완료, 문자열이면 거부 사유
 typealias AIBIResultSink = (String) -> String?
 
+/// 실행을 시작한 기능. 한 기능의 정리 작업이 다른 기능의 진행 중 실행을 취소하지 않게 한다.
+enum AIBIRunOwner {
+    case mail
+    case screen
+}
+
 // MARK: - 실행기 (숨김/보이기, 1회 전송, 3회 안정 관찰, 119초 상한, 취소)
 
 @MainActor
@@ -443,15 +469,19 @@ final class AIBIRunner {
     @ObservationIgnored private var runID: UUID?
     @ObservationIgnored private var blockedNavigation = false
     @ObservationIgnored private var navigationFailed = false
+    @ObservationIgnored private var processTerminated = false
     @ObservationIgnored private var runtimeFailureLogged = false
     @ObservationIgnored private var allowsFormatRetry = false
+    /// 현재 실행을 시작한 기능(메일/화면). 실행이 없으면 nil.
+    @ObservationIgnored private(set) var owner: AIBIRunOwner?
 
     private init() {}
 
     /// 작업 하나를 끝까지 진행한다. 다른 제공사나 Apple 번역으로 대체하지 않는다.
     /// - prompt: 입력 직전에 한 번만 호출된다(그 사이 끝난 OCR 결과도 포함되도록). nil이면 보낼 것이 없음.
     /// - manualOnly: 자동 입력 없이 공식 화면 + 프롬프트 복사·응답 붙여넣기로만 진행
-    func run(provider: AIProvider, alwaysVisible: Bool, manualOnly: Bool = false, allowsFormatRetry: Bool = false,
+    func run(provider: AIProvider, owner: AIBIRunOwner, alwaysVisible: Bool, manualOnly: Bool = false, allowsFormatRetry: Bool = false,
+             surface: AIBIHostView? = nil,
              prompt: @escaping () -> String?, sink: @escaping AIBIResultSink) async -> AIBIOutcome {
         cancel()
         guard let config = AIBIRegistry.config(provider), AIBIRegistry.runtimeSource != nil else {
@@ -465,13 +495,15 @@ final class AIBIRunner {
         self.sink = sink
         blockedNavigation = false
         navigationFailed = false
+        processTerminated = false
         runtimeFailureLogged = false
         self.allowsFormatRetry = allowsFormatRetry
+        self.owner = owner
         runID = AIBIDiagnosticsStore.shared.start(provider: provider.rawValue)
         status = AIBIRunStatus(provider: provider, stage: "\(provider.title) 여는 중", observationDeadline: nil,
                                isVisible: false, userAction: nil, manualError: nil)
 
-        if !alwaysVisible && !manualOnly, let host = AIBIHiddenSurface.shared.availableHost() {
+        if !alwaysVisible && !manualOnly, let host = AIBIHiddenSurface.shared.availableHost(preferring: surface) {
             mountHidden(in: host)
         } else {
             presentVisible()
@@ -487,6 +519,12 @@ final class AIBIRunner {
         guard gen == generation else { return .cancelled }
         finish(outcome)
         return outcome
+    }
+
+    /// 지정한 기능이 시작한 실행일 때만 취소한다(다른 기능의 실행은 그대로 둔다).
+    func cancel(owner: AIBIRunOwner) {
+        guard self.owner == owner else { return }
+        cancel()
     }
 
     /// 진행 중인 작업을 즉시 무효화한다(웹 보기·관찰·세대 모두). 늦게 도착한 결과는 반영되지 않는다.
@@ -527,7 +565,7 @@ final class AIBIRunner {
     private enum Submission { case submitted(baseline: Int), needsManual, needsLogin, failed(String), cancelled }
 
     private func drive(gen: UInt64) async -> AIBIOutcome {
-        while gen == generation {
+        while isCurrent(gen) {
             switch await waitForReadiness(gen: gen) {
             case .cancelled:
                 return .cancelled
@@ -557,16 +595,20 @@ final class AIBIRunner {
         let started = Date()
         var misses = 0
         setStage("\(config.provider.title) 화면 준비 중")
-        while gen == generation {
+        while isCurrent(gen) {
             if Date().timeIntervalSince(started) > 35 {
                 log("composer_missing", ["composer_present": 0, "attempt": misses])
                 return .needs(.manual)
             }
             await pause(0.7)
-            guard gen == generation, let webView else { return .cancelled }
+            guard isCurrent(gen), let webView else { return .cancelled }
             if navigationFailed {
                 log("browser_load_failed")
                 return .failed("네트워크 오류로 \(config.provider.title) 페이지를 열지 못했습니다. 인터넷 연결을 확인한 뒤 다시 시도하세요.")
+            }
+            if processTerminated {
+                log("renderer_terminated")
+                return .failed(rendererTerminatedMessage(config))
             }
             if blockedNavigation {
                 blockedNavigation = false
@@ -575,14 +617,14 @@ final class AIBIRunner {
             guard let url = webView.url, !webView.isLoading else { continue }
             if config.isAuth(url) && !config.allowsScript(url) { return .needs(.login) }
             guard config.allowsScript(url),
-                  let data = await callRuntime("checkReadiness", on: webView)?["data"] as? [String: Any] else { continue }
-            guard gen == generation else { return .cancelled }
+                  let data = await callRuntime("checkReadiness", on: webView, gen: gen)?["data"] as? [String: Any] else { continue }
+            guard isCurrent(gen) else { return .cancelled }
             if data["isLoggedIn"] as? Bool == false { return .needs(.login) }
             if data["hasChallenge"] as? Bool == true { return .needs(.challenge) }
             if data["isReady"] as? Bool == true {
                 // 작성기가 있어도 로그인 화면 표식이 보이면 로그인 필요로 본다(작성기는 로그인 증거가 아님).
                 let auth = await AIBIRegistry.probeAuth(webView, config: config)
-                guard gen == generation else { return .cancelled }
+                guard isCurrent(gen) else { return .cancelled }
                 if auth == "login" { return .needs(.login) }
                 if auth == "challenge" { return .needs(.challenge) }
                 guard auth == "authenticated" else {
@@ -605,14 +647,18 @@ final class AIBIRunner {
 
     private func injectAndSubmit(gen: UInt64) async -> Submission {
         guard let config, let webView else { return .cancelled }
+        if processTerminated {
+            log("renderer_terminated")
+            return .failed(rendererTerminatedMessage(config))
+        }
         guard !webView.isLoading else { return .needsManual }
         let authenticated = await AIBIRegistry.probeAuth(webView, config: config)
-        guard gen == generation else { return .cancelled }
+        guard isCurrent(gen) else { return .cancelled }
         if authenticated == "login" { return .needsLogin }
         guard authenticated == "authenticated" else { return .needsManual }
         setStage("요청 입력 중")
-        let baseline = (await callRuntime("getBaselineState", on: webView)?["data"] as? [String: Any])?["assistantCount"] as? Int ?? 0
-        guard gen == generation else { return .cancelled }
+        let baseline = (await callRuntime("getBaselineState", on: webView, gen: gen)?["data"] as? [String: Any])?["assistantCount"] as? Int ?? 0
+        guard isCurrent(gen) else { return .cancelled }
         guard let prompt = currentPrompt() else { return .failed("보낼 번역 항목이 없습니다.") }
 
         // A cancelled translation may leave this app's request as a provider draft.
@@ -636,37 +682,38 @@ final class AIBIRunner {
           const ids = new Set();
           for (const item of data.items) {
             if (Object.keys(item).sort().join(',') !== 'id,kind,text' || !/^t[1-9][0-9]*$/.test(item.id) ||
-                typeof item.text !== 'string' || !['subject','body','image-text'].includes(item.kind) || ids.has(item.id)) return false;
+                typeof item.text !== 'string' || !['subject','body','image-text','screen-text'].includes(item.kind) || ids.has(item.id)) return false;
             ids.add(item.id);
           }
           return true;
         } catch (_) { return false; }
         """
-        let replaceOwnedDraft = await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
-            webView.callAsyncJavaScript(draftScript, arguments: ["config": config.json, "prompt": prompt], in: nil, in: .page) { result in
-                if case .success(let value) = result { continuation.resume(returning: value as? Bool ?? false) }
-                else { continuation.resume(returning: false) }
-            }
-        }
-        guard gen == generation else { return .cancelled }
+        // 위의 계정 확인·기준 상태 확인 await 사이에 인증 경로로 이동했을 수 있으므로 공통 보호 경로로만 실행한다.
+        let replaceOwnedDraft = await executePage(draftScript, arguments: ["config": config.json, "prompt": prompt],
+                                                  on: webView, gen: gen, as: Bool.self) ?? false
+        guard isCurrent(gen) else { return .cancelled }
         var inserted = false
         for attempt in 1...4 {
-            guard gen == generation else { return .cancelled }
+            guard isCurrent(gen) else { return .cancelled }
+            if processTerminated {
+                log("renderer_terminated")
+                return .failed(rendererTerminatedMessage(config))
+            }
             guard let currentURL = webView.url else { return .needsManual }
             if config.isAuth(currentURL) && !config.allowsScript(currentURL) { return .needsLogin }
-            let result = await callRuntime("injectPrompt", [prompt, replaceOwnedDraft && attempt == 1], on: webView)
-            if let check = await callRuntime("verifyPromptInjected", [prompt], on: webView),
+            let result = await callRuntime("injectPrompt", [prompt, replaceOwnedDraft && attempt == 1], on: webView, gen: gen)
+            if let check = await callRuntime("verifyPromptInjected", [prompt], on: webView, gen: gen),
                let data = check["data"] as? [String: Any], let kind = data["differenceKind"] as? Int {
                 log("bridge_snapshot", ["difference_kind": kind])
             }
-            guard gen == generation else { return .cancelled }
+            guard isCurrent(gen) else { return .cancelled }
             if result?["code"] as? String == "EXISTING_TEXT_PRESERVED" {
                 // 사용자가 입력해 둔 다른 글은 덮어쓰지 않는다.
                 log("prompt_failed", ["attempt": attempt, "prompt_present": 1])
                 return .needsManual
             }
             if result?["success"] as? Bool == true,
-               let verify = await callRuntime("verifyPromptInjected", [prompt], on: webView),
+               let verify = await callRuntime("verifyPromptInjected", [prompt], on: webView, gen: gen),
                (verify["data"] as? [String: Any])?["matches"] as? Bool == true {
                 log("prompt_inserted", ["prompt_length": prompt.count, "attempt": attempt])
                 inserted = true
@@ -674,7 +721,7 @@ final class AIBIRunner {
             }
             await pause(0.6)
         }
-        guard gen == generation else { return .cancelled }
+        guard isCurrent(gen) else { return .cancelled }
         guard inserted else {
             log("prompt_failed", ["prompt_present": 0])
             return .needsManual
@@ -687,11 +734,15 @@ final class AIBIRunner {
         var dispatched = false
         var attempts = 0
         while Date().timeIntervalSince(started) < 15 {
-            guard gen == generation else { return .cancelled }
+            guard isCurrent(gen) else { return .cancelled }
+            if processTerminated {
+                log("renderer_terminated")
+                return .failed(rendererTerminatedMessage(config))
+            }
             if !dispatched {
                 attempts += 1
-                let result = await callRuntime("submitPrompt", [attempts], on: webView)
-                guard gen == generation else { return .cancelled }
+                let result = await callRuntime("submitPrompt", [attempts], on: webView, gen: gen)
+                guard isCurrent(gen) else { return .cancelled }
                 if result?["success"] as? Bool == true,
                    (result?["data"] as? [String: Any])?["attempted"] as? Bool == true {
                     dispatched = true
@@ -702,10 +753,10 @@ final class AIBIRunner {
                 }
             }
             await pause(0.7)
-            guard gen == generation else { return .cancelled }
-            await drainDiagnostics(webView)
-            let verify = await callRuntime("verifySubmission", [baseline], on: webView)
-            guard gen == generation else { return .cancelled }
+            guard isCurrent(gen) else { return .cancelled }
+            await drainDiagnostics(webView, gen: gen)
+            let verify = await callRuntime("verifySubmission", [baseline], on: webView, gen: gen)
+            guard isCurrent(gen) else { return .cancelled }
             if (verify?["data"] as? [String: Any])?["submitted"] as? Bool == true {
                 log("send_observed", ["attempt": attempts])
                 return .submitted(baseline: baseline)
@@ -730,18 +781,22 @@ final class AIBIRunner {
         var stableTicks = 0
         var rejected: (text: String, at: Date, reason: String)?
 
-        while gen == generation {
+        while isCurrent(gen) {
             if Date() >= deadline {
                 log("generation_failed", ["generation_active": 0, "stable_samples": stableTicks])
                 if let rejected { return .failed(rejected.reason) }
                 status?.manualError = "제한 시간(1:59) 안에 답변을 가져오지 못했습니다. 현재 답변 화면을 보존했습니다."
                 return await takeover(.manual, gen: gen, preserveBrowser: true) ?? .cancelled
             }
+            if processTerminated {
+                log("renderer_terminated")
+                return .failed(rendererTerminatedMessage(config))
+            }
             await pause(0.7)
-            guard gen == generation else { return .cancelled }
-            await drainDiagnostics(webView)
-            guard let data = await callRuntime("observeGeneration", [baseline], on: webView)?["data"] as? [String: Any] else { continue }
-            guard gen == generation else { return .cancelled }
+            guard isCurrent(gen) else { return .cancelled }
+            await drainDiagnostics(webView, gen: gen)
+            guard let data = await callRuntime("observeGeneration", [baseline], on: webView, gen: gen)?["data"] as? [String: Any] else { continue }
+            guard isCurrent(gen) else { return .cancelled }
             let phase = data["phase"] as? String
             if phase == "FAILED" {
                 log("generation_failed", ["generation_active": 0])
@@ -812,7 +867,7 @@ final class AIBIRunner {
                 existing.removeFromSuperview()
                 existing.interactive = true
                 status?.isVisible = true
-                let resultWindow = AIBIBrowserWindow(title: "\(config.provider.title) — 메일 번역기 외부 AI", header: AIBITaskHeader(), webView: existing)
+                let resultWindow = AIBIBrowserWindow(title: "\(config.provider.title) — 바로보기 외부 AI", header: AIBITaskHeader(), webView: existing)
                 resultWindow.onUserClose = { [weak self] in self?.window = nil; self?.cancel() }
                 window = resultWindow
                 resultWindow.show()
@@ -835,27 +890,36 @@ final class AIBIRunner {
             setStage("\(config.provider.title) 보안 확인이 필요합니다")
         case .manual:
             setStage(status?.manualError == nil ? "자동 입력을 진행하지 못했습니다 — 수동으로 진행하세요" : "답변 형식을 확인해야 합니다 — 수동으로 진행하세요")
+            if processTerminated { return .failed(rendererTerminatedMessage(config)) }
             return await withCheckedContinuation { continuation in
-                if gen == generation { manualContinuation = continuation } else { continuation.resume(returning: .cancelled) }
+                guard isCurrent(gen), !processTerminated else {
+                    continuation.resume(returning: isCurrent(gen) ? .failed(rendererTerminatedMessage(config)) : .cancelled)
+                    return
+                }
+                manualContinuation = continuation
             }
         }
 
         // 로그인·보안 확인: 사용자가 끝낼 때까지 계정 표식을 확인한다(최대 10분).
         let deadline = Date().addingTimeInterval(600)
-        while gen == generation && Date() < deadline {
+        while isCurrent(gen) && Date() < deadline {
+            if processTerminated {
+                log("renderer_terminated")
+                return .failed(rendererTerminatedMessage(config))
+            }
             await pause(1.0)
-            guard gen == generation, let webView else { return .cancelled }
+            guard isCurrent(gen), let webView else { return .cancelled }
             blockedNavigation = false
             navigationFailed = false
             guard let url = webView.url, config.allowsScript(url) else { continue }
             if await AIBIRegistry.probeAuth(webView, config: config) == "authenticated" {
-                guard gen == generation else { return .cancelled }
+                guard isCurrent(gen) else { return .cancelled }
                 AIBIAccounts.shared.observed(config.provider, .authenticated)
                 status?.userAction = nil
                 return nil
             }
         }
-        guard gen == generation else { return .cancelled }
+        guard isCurrent(gen) else { return .cancelled }
         return .failed("\(config.provider.title) 로그인을 기다리는 시간(10분)이 지나 중단했습니다.")
     }
 
@@ -873,7 +937,7 @@ final class AIBIRunner {
         let webView = makeWebView(interactive: true)
         self.webView = webView
         status?.isVisible = true
-        let window = AIBIBrowserWindow(title: "\(config.provider.title) — 메일 번역기 외부 AI",
+        let window = AIBIBrowserWindow(title: "\(config.provider.title) — 바로보기 외부 AI",
                                        header: AIBITaskHeader(), webView: webView)
         window.onUserClose = { [weak self] in
             // 사용자가 창을 닫으면 작업을 취소한다(이미 닫히는 창을 다시 닫지 않음).
@@ -885,6 +949,8 @@ final class AIBIRunner {
     }
 
     private func makeWebView(interactive: Bool) -> AIBIWebView {
+        navigationFailed = false
+        processTerminated = false
         let webView = AIBIWebView(frame: NSRect(origin: .zero, size: AIBIHiddenSurface.viewport),
                                   configuration: AIBIRegistry.makeConfiguration())
         webView.interactive = interactive
@@ -899,6 +965,7 @@ final class AIBIRunner {
             }
             guardian.onFinish = { [weak self] in self?.log("browser_loaded") }
             guardian.onFailure = { [weak self] in self?.navigationFailed = true }
+            guardian.onProcessTerminated = { [weak self] in self?.handleProcessTerminated() }
             webView.navigationDelegate = guardian
             webView.uiDelegate = guardian
             navigationGuard = guardian
@@ -936,6 +1003,7 @@ final class AIBIRunner {
         promptSource = nil
         cachedPrompt = nil
         sink = nil
+        owner = nil
     }
 
     // MARK: 도우미
@@ -944,6 +1012,24 @@ final class AIBIRunner {
         if let cachedPrompt { return cachedPrompt }
         cachedPrompt = promptSource?()
         return cachedPrompt
+    }
+
+    /// 짧고 사실에 근거한 안내만 준다 — 원인(메모리 등)을 추측하거나 재시작을 약속하지 않는다.
+    private func rendererTerminatedMessage(_ config: AIBIProviderConfig) -> String {
+        "\(config.provider.title) 화면이 응답을 멈춰 요청을 중단했습니다. 다시 시도해 주세요."
+    }
+
+    /// 메인 웹 보기 렌더러 종료의 단일 처리 경로. processTerminated를 세우고(이후 canExecute가
+    /// 늦게 도착하는 JS 결과를 모두 막는다), 수동 전환 중 대기 중인 continuation이 있으면
+    /// 그 자리에서 실패로 정리해 무기한 대기를 막는다(세대는 바꾸지 않아 결과가 그대로 run()까지 전달된다).
+    private func handleProcessTerminated() {
+        guard !processTerminated else { return }
+        processTerminated = true
+        log("renderer_terminated")
+        guard let continuation = manualContinuation else { return }
+        manualContinuation = nil
+        let message = config.map(rendererTerminatedMessage) ?? "화면이 응답을 멈춰 요청을 중단했습니다. 다시 시도해 주세요."
+        continuation.resume(returning: .failed(message))
     }
 
     private func setStage(_ stage: String) {
@@ -959,11 +1045,68 @@ final class AIBIRunner {
         AIBIDiagnosticsStore.shared.record(runID: runID, event: event, metrics: metrics)
     }
 
+    /// 지금 실행 중인 작업(같은 세대·작업 미취소)인지
+    private func isCurrent(_ gen: UInt64) -> Bool {
+        gen == generation && !Task.isCancelled
+    }
+
+    /// 페이지 스크립트 실행 직전 네이티브 확인: 현재 작업·현재 웹 보기·로드 완료·공식 실행 origin(인증 경로 제외).
+    private func canExecute(gen: UInt64, on webView: WKWebView) -> Bool {
+        guard isCurrent(gen), !processTerminated, let config, self.webView === webView, !webView.isLoading,
+              let url = webView.url else { return false }
+        return config.allowsScript(url)
+    }
+
+    /// 스크립트 첫 줄 확인: 네이티브 확인 뒤 비동기로 이동한 문서(OAuth 등)에서는 아무것도 하지 않는다.
+    /// 판정은 AIBIProviderConfig.allowsScript와 같은 규칙(scheme·host·port·경로 접두사)을 실제 location에 적용한다.
+    private static let locationGuard = """
+    const __aibiHit = (o) => location.protocol === o.protocol && location.hostname.toLowerCase() === o.host &&
+      location.port === o.port && (o.path === '' || o.path === '/' || location.pathname.startsWith(o.path));
+    if (window.top !== window || !__aibiScriptOrigins.some(__aibiHit) || __aibiAuthOrigins.some(__aibiHit)) return null;
+
+    """
+
+    private static func originDescriptors(_ origins: [URL]) -> [[String: String]] {
+        origins.map { origin in
+            ["protocol": (origin.scheme ?? "").lowercased() + ":",
+             "host": (origin.host ?? "").lowercased(),
+             "port": origin.port.map(String.init) ?? "",
+             "path": origin.path]
+        }
+    }
+
+    private static func guardedArguments(_ arguments: [String: Any], config: AIBIProviderConfig) -> [String: Any] {
+        var guarded = arguments
+        guarded["__aibiScriptOrigins"] = originDescriptors(config.scriptOrigins)
+        guarded["__aibiAuthOrigins"] = originDescriptors(config.authOrigins)
+        return guarded
+    }
+
+    /// 실행 웹 보기의 모든 페이지 스크립트(프롬프트 입력·전송 포함)가 지나는 단일 경로.
+    /// 네이티브 확인 직후 같은 동기 구간에서 호출하고, 페이지 안에서도 실제 location을 다시 확인한다.
+    /// 실패 사유·인자는 로그나 오류에 남기지 않는다.
+    private func executePage<T: Sendable>(_ body: String, arguments: [String: Any], on webView: WKWebView, gen: UInt64,
+                                as type: T.Type) async -> T? {
+        guard canExecute(gen: gen, on: webView), let config else { return nil }
+        let value = await withCheckedContinuation { (continuation: CheckedContinuation<T?, Never>) in
+            webView.callAsyncJavaScript(Self.locationGuard + body, arguments: Self.guardedArguments(arguments, config: config),
+                                        in: nil, in: .page) { result in
+                if case .success(let value) = result { continuation.resume(returning: value as? T) }
+                else { continuation.resume(returning: nil) }
+            }
+        }
+        // 그사이 취소·웹 보기 교체·렌더러 종료가 있었으면 늦게 도착한 결과를 쓰지 않는다.
+        guard isCurrent(gen), !processTerminated, self.webView === webView else { return nil }
+        return value
+    }
+
     /// 공식 실행 origin에서만 공통 런타임을 주입·호출한다. 값은 인자로만 넘긴다(스크립트 문자열에 끼워 넣지 않음).
-    private func callRuntime(_ method: String, _ values: [Any] = [], on webView: WKWebView,
+    private func callRuntime(_ method: String, _ values: [Any] = [], on webView: WKWebView, gen: UInt64,
                              withConfig: Bool = true) async -> [String: Any]? {
-        guard let config, let url = webView.url, config.allowsScript(url) else { return nil }
-        await ensureRuntime(webView)
+        guard canExecute(gen: gen, on: webView) else { return nil }
+        guard await ensureRuntime(webView, gen: gen) else { return nil }
+        // 런타임 확인 await 동안 취소·교체·인증 경로 이동이 있었을 수 있으므로 인자를 만들기 전에 다시 확인한다.
+        guard canExecute(gen: gen, on: webView), let config else { return nil }
         var arguments: [String: Any] = [:]
         var names: [String] = []
         if withConfig {
@@ -975,41 +1118,35 @@ final class AIBIRunner {
             names.append("a\(index)")
         }
         let body = "const r = window.__AIBI_RUNTIME__; return r ? r.\(method)(\(names.joined(separator: ", "))) : null;"
-        let string = await withCheckedContinuation { (continuation: CheckedContinuation<String?, Never>) in
-            webView.callAsyncJavaScript(body, arguments: arguments, in: nil, in: .page) { result in
-                if case .success(let value) = result { continuation.resume(returning: value as? String) }
-                else { continuation.resume(returning: nil) }
-            }
-        }
+        let string = await executePage(body, arguments: arguments, on: webView, gen: gen, as: String.self)
         guard let data = string?.data(using: .utf8) else { return nil }
         return (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
     }
 
-    private func ensureRuntime(_ webView: WKWebView) async {
-        guard let source = AIBIRegistry.runtimeSource, let config, let url = webView.url, config.allowsScript(url) else { return }
-        if await evaluate("typeof window.__AIBI_RUNTIME__ !== 'undefined'", on: webView) { return }
-        _ = await evaluate(source, on: webView)
-        if await evaluate("typeof window.__AIBI_RUNTIME__ !== 'undefined'", on: webView) {
+    /// 런타임이 준비되면 true. 매 await 뒤 executePage가 같은 확인을 다시 거친다.
+    private func ensureRuntime(_ webView: WKWebView, gen: UInt64) async -> Bool {
+        guard let source = AIBIRegistry.runtimeSource, canExecute(gen: gen, on: webView) else { return false }
+        let check = "return typeof window.__AIBI_RUNTIME__ !== 'undefined';"
+        if await executePage(check, arguments: [:], on: webView, gen: gen, as: Bool.self) == true { return true }
+        guard canExecute(gen: gen, on: webView) else { return false }
+        _ = await executePage(source + "\n;return null;", arguments: [:], on: webView, gen: gen, as: Bool.self)
+        guard canExecute(gen: gen, on: webView) else { return false }
+        if await executePage(check, arguments: [:], on: webView, gen: gen, as: Bool.self) == true {
             runtimeFailureLogged = false
             log("bridge_ready")
-        } else if !runtimeFailureLogged {
+            return true
+        }
+        guard isCurrent(gen) else { return false }
+        if !runtimeFailureLogged {
             runtimeFailureLogged = true
             log("bridge_failed")
         }
-    }
-
-    private func evaluate(_ script: String, on webView: WKWebView) async -> Bool {
-        await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
-            webView.evaluateJavaScript(script, in: nil, in: .page) { result in
-                if case .success(let value) = result { continuation.resume(returning: (value as? Bool) == true) }
-                else { continuation.resume(returning: false) }
-            }
-        }
+        return false
     }
 
     /// 런타임의 진단 큐(단계 이름·정수만)를 저장소로 옮긴다. 저장소가 허용 목록으로 다시 거른다.
-    private func drainDiagnostics(_ webView: WKWebView) async {
-        guard let runID, let data = await callRuntime("drainDiagnostics", on: webView)?["data"] as? [String: Any] else { return }
+    private func drainDiagnostics(_ webView: WKWebView, gen: UInt64) async {
+        guard let runID, let data = await callRuntime("drainDiagnostics", on: webView, gen: gen)?["data"] as? [String: Any] else { return }
         for event in AIBIDiagnosticsStore.runtimeEvents(from: data["events"]) {
             AIBIDiagnosticsStore.shared.record(runID: runID, event: event.stage, metrics: event.metrics)
         }
@@ -1017,8 +1154,10 @@ final class AIBIRunner {
 
     private func drainBeforeTeardown(_ webView: WKWebView) {
         guard let runID, let config, let url = webView.url, config.allowsScript(url) else { return }
-        webView.callAsyncJavaScript("const r = window.__AIBI_RUNTIME__; return r ? r.drainDiagnostics(config) : null;",
-                                    arguments: ["config": config.json], in: nil, in: .page) { result in
+        // 정리 중 호출이라 세대 확인은 하지 않지만, 프롬프트 없이 진단 큐만 읽고 같은 location 확인을 거친다.
+        webView.callAsyncJavaScript(Self.locationGuard + "const r = window.__AIBI_RUNTIME__; return r ? r.drainDiagnostics(config) : null;",
+                                    arguments: Self.guardedArguments(["config": config.json], config: config),
+                                    in: nil, in: .page) { result in
             _ = webView
             guard case .success(let value) = result, let string = value as? String,
                   let data = string.data(using: .utf8),
@@ -1101,7 +1240,7 @@ private struct AIBITaskHeader: View {
                 .fixedSize(horizontal: false, vertical: true)
             HStack {
                 Button("요청 복사") { runner.copyPrompt() }
-                    .help("메일 제목·본문·이미지 글자가 포함된 번역 요청을 클립보드에 복사합니다")
+                    .help("번역할 텍스트(메일 제목·본문·이미지 글자 또는 화면에서 인식한 글자)가 포함된 번역 요청을 클립보드에 복사합니다")
                 Button("응답 적용") { runner.applyManual(pasted) }
                     .disabled(pasted.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 if let error = status.manualError {
@@ -1151,7 +1290,8 @@ final class AIBIAccounts {
     @ObservationIgnored private var loginGeneration = 0
 
     private static let alwaysShowKey = "aibiAlwaysShowBrowser"
-    private static func consentKey(_ provider: AIProvider) -> String { "aibiConsent.\(provider.rawValue)" }
+    /// 메일과 화면 번역을 모두 설명한 이 앱의 동의만 인정한다(다른 앱·이전 문구의 동의를 가져오지 않음).
+    private static func consentKey(_ provider: AIProvider) -> String { "aibiConsentMailAndScreenV1.\(provider.rawValue)" }
     private static func logoutKey(_ provider: AIProvider) -> String { "aibiExplicitLogout.\(provider.rawValue)" }
 
     private init() {
@@ -1160,7 +1300,7 @@ final class AIBIAccounts {
         consents = Set(AIProvider.allCases.filter { defaults.bool(forKey: Self.consentKey($0)) })
     }
 
-    // MARK: 동의 (전송 대상: 제목·본문 텍스트·OCR 텍스트)
+    // MARK: 동의 (전송 대상: 메일 제목·본문 텍스트·이미지 OCR 텍스트, 화면 번역의 인식 텍스트)
 
     func hasConsent(_ provider: AIProvider) -> Bool { consents.contains(provider) }
 
@@ -1262,7 +1402,7 @@ final class AIBIAccounts {
         }
         .font(.callout)
         .padding(12)
-        let window = AIBIBrowserWindow(title: "\(provider.title) 로그인 — 메일 번역기", header: header, webView: webView)
+        let window = AIBIBrowserWindow(title: "\(provider.title) 로그인 — 바로보기", header: header, webView: webView)
         window.onUserClose = { [weak self] in
             guard let self, generation == self.loginGeneration else { return }
             self.loginGeneration += 1
@@ -1317,6 +1457,7 @@ final class AIBIAccounts {
     /// 이 앱의 기본 웹 저장소(외부 AI 로그인 전용)를 모두 지운다. 메일 서식 보기는 비영구 저장소라 영향이 없다.
     func clearAllSessions() async {
         AIBIRunner.shared.cancel()
+        WebTranslatorRunner.shared.cancelAll()
         loginGeneration += 1
         closeLogin()
         isClearing = true

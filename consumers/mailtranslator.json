@@ -4,9 +4,9 @@
   "repositories": [
     {
       "id": "mailtranslator-macos",
-      "root": "../MailTranslator-MacOS",
+      "root": "../Barobogi-MacOS",
       "lockFile": ".aibi-lock.json",
-      "verification": "./build.sh --build-only",
+      "verification": "./build.sh",
       "files": [
         {
           "source": "profiles/mailtranslator/distribution/macos/AIBIMacEngine.swift",

@@ -323,8 +323,14 @@ final class AIBISession: NSObject, ObservableObject {
             let attached = await attachImagesAtomically(task.attachments, config: config, webView: webView, generation: generation)
             guard attached else {
                 if generationId == generation {
-                    log("attachment_failed", ["expected_count": task.attachments.count])
-                    failWithError("사진을 ChatGPT에 모두 첨부하지 못했습니다. 다시 시도해주세요.")
+                    log("attachment_failed", ["expected_count": task.attachments.count, "attachment_verified": 0])
+                    // 개수 지표(preview/input/uploading)만 진단에 남긴다.
+                    await drainRuntimeDiagnostics(webView: webView)
+                    guard generationId == generation else { return }
+                    // AI 요청은 자동으로 보내지 않았지만 사진 파일은 이미 업로드됐을 수 있다. 숨김 브라우저를
+                    // 부수지 않고 보이는 화면으로 넘겨 사용자가 첨부 상태를 직접 확인할 수 있게 한다.
+                    // 부분 첨부 상태로 자동 전송하지 않는다.
+                    failPreservingBrowser("사진을 ChatGPT에 모두 첨부하지 못했습니다. AI 요청을 자동으로 보내지는 않았습니다. 열린 ChatGPT 화면에서 사진이 모두 첨부됐는지 확인한 뒤 직접 보내거나, 취소하고 다시 시도해주세요.")
                 }
                 return
             }
@@ -427,6 +433,11 @@ final class AIBISession: NSObject, ObservableObject {
                 for _ in 0..<3 where generationId == generation && !nativeAttachmentPanelHandled {
                     _ = try? await evaluateScript("window.__AIBI_RUNTIME__.prepareAttachmentInput(\(encodedConfig))", on: webView)
                     guard generationId == generation else { return false }
+                    // ChatGPT의 '사진' 메뉴 항목은 클릭만으로 파일 선택창을 연다. 그 선택창이 이미 처리됐다면
+                    // 입력 요소를 다시 클릭해 같은 파일을 두 번 고르지 않는다(중복 첨부는 개수 검증을 깨뜨린다).
+                    try? await Task.sleep(nanoseconds: 350_000_000)
+                    guard generationId == generation else { return false }
+                    if nativeAttachmentPanelHandled { break }
                     _ = try? await evaluateScript("window.__AIBI_RUNTIME__.openAttachmentPanel(\(encodedConfig))", on: webView)
                     try? await Task.sleep(nanoseconds: 700_000_000)
                 }
@@ -439,6 +450,12 @@ final class AIBISession: NSObject, ObservableObject {
                     return true
                 }
                 guard generationId == generation else { return false }
+                if nativeAttachmentPanelHandled {
+                    // 네이티브 선택창이 이미 파일을 넘겼다면 업로드는 성공했을 수 있다. 미리보기 개수만
+                    // 확인되지 않은 상태에서 DataTransfer로 다시 넣으면 같은 사진이 중복된다.
+                    // 폴백 없이 실패로 반환해 브라우저를 보존하고 사용자가 직접 확인하게 한다.
+                    return false
+                }
                 clearPendingAttachmentFiles()
             } catch {
                 clearPendingAttachmentFiles()
@@ -560,7 +577,7 @@ final class AIBISession: NSObject, ObservableObject {
             // 프롬프트(와 사진)가 이미 ChatGPT에 소비됐을 수 있다. 재전송·텍스트만 다시 채우기·새 브라우저 열기는
             // 요청을 중복시키거나 사진을 빠뜨릴 수 있으므로, 명확한 실패와 구체적인 사용자 행동으로 끝낸다.
             log("send_timeout", ["attempt": submitAttemptCount, "attachment_verified": 1])
-            failWithError("프롬프트는 전송됐지만 제한 시간 안에 답변이 시작되지 않았습니다. ChatGPT 화면에서 보낸 메시지를 확인한 뒤, 설정의 AI 진단 로그를 공유하고 다시 시도해주세요.")
+            failPreservingBrowser("프롬프트는 전송됐지만 제한 시간 안에 답변이 시작되지 않았습니다. ChatGPT 화면에서 보낸 메시지를 확인한 뒤, 설정의 AI 진단 로그를 공유하고 다시 시도해주세요.")
         } else {
             // 아무것도 전송되지 않았다: 프롬프트와 첨부가 아직 작성기에 남아 있으므로
             // 텍스트만 재전송하지 않고 보이는 브라우저(또는 hiddenOnly 실패 메시지)로 넘긴다.
@@ -650,7 +667,7 @@ final class AIBISession: NSObject, ObservableObject {
                    Date().timeIntervalSince(started) > self.timingProfile.observationTimeout {
                     timer.invalidate()
                     self.log("generation_failed", ["generation_active": 0, "stable_samples": self.stabilityTickCount])
-                    self.failWithError("제한 시간 안에 답변이 도착하지 않았습니다. ChatGPT 화면을 확인한 뒤 다시 시도해주세요.")
+                    self.failPreservingBrowser("제한 시간 안에 답변이 도착하지 않았습니다. 현재 화면을 보존했습니다. 확인한 뒤 다시 시도해주세요.")
                     return
                 }
                 await self.performObservationTick(generation: generation, timer: timer)
@@ -738,6 +755,8 @@ final class AIBISession: NSObject, ObservableObject {
             case .failure(let err):
                 // Only the outcome is recorded; the host's error text never enters the log.
                 log("response_rejected", ["response_length": result.cleanedText.count])
+                // The rejected answer is already on the page; surface it instead of leaving it hidden.
+                if !isVisibleBrowserPresented { promoteCurrentBrowserToVisible() }
                 updatePhase(.failed, message: "결과 검증 실패: \(err.localizedDescription)")
             }
         } else {
@@ -758,6 +777,19 @@ final class AIBISession: NSObject, ObservableObject {
         log("run_failed")
         updatePhase(.failed, message: message)
         destroyHiddenBrowser()
+    }
+
+    /// Same terminal transition as failWithError, but a conversation already exists on the page
+    /// (a sent prompt or a generated answer) that the user may still need to see, so the running
+    /// WebView is promoted instead of destroyed.
+    private func failPreservingBrowser(_ message: String) {
+        stopAllTimers()
+        generationId &+= 1
+        clearPendingAttachmentFiles()
+        self.lastErrorMessage = message
+        log("run_failed")
+        if !isVisibleBrowserPresented { promoteCurrentBrowserToVisible() }
+        updatePhase(.failed, message: message)
     }
 
     private func escalateToVisible(reason: AIBIFallbackReason) {
@@ -997,6 +1029,13 @@ extension AIBISession: WKNavigationDelegate {
         if nsError.domain == NSURLErrorDomain && nsError.code == NSURLErrorCancelled { return }
         log("browser_load_failed")
         failWithError("네트워크 오류: \(nsError.localizedDescription)")
+    }
+
+    /// WebKit silently kills the WebContent process without calling didFail/didFailProvisionalNavigation, so this must invalidate the run the same way other terminal failures do.
+    func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
+        guard webView === hiddenWebView || webView === visibleWebView else { return }
+        log("browser_load_failed")
+        failWithError("ChatGPT 화면이 중단됐습니다. 다시 시도해주세요.")
     }
 }
 

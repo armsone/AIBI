@@ -1,0 +1,107 @@
+<!--
+sanitized: true
+provider-class: chatgpt-collapsed-mobile-sidebar
+scenario: mobile ChatGPT with the left account/history sidebar collapsed, three synthetic
+  states stacked in one file for readability (real device never shows all three at once)
+covers: ExternalAIBrowserScripts.authStatusProbeScript(for: .openAI) and
+  ExternalAIBrowserScripts.openChatGPTSidebarScript()
+expected:
+  - state "collapsed-logged-in": authenticated markers (profile-button, nav a[href*='/c/'],
+    nav[aria-label='Chat history']) live inside the collapsed sidebar and are not visible,
+    so the probe must find only the unique visible "Open sidebar" control, click it once,
+    then re-read the now-visible authenticated markers before returning authenticated: true
+  - state "collapsed-login-screen": a visible login button is present, so the probe must
+    report hasLogin: true and must NOT attempt to open any sidebar control
+  - state "collapsed-ambiguous-sidebar-controls": two separate visible elements both carry the
+    exact aria-label "Open sidebar" (a rare but possible duplicate-render glitch), so the unique-
+    match requirement fails, the probe must click neither, and must fall through to its existing
+    unknown/no-evidence result rather than guessing which one is real
+no prompt text, answer text, real account identifier, cookie, token, or photo content is present
+in this fixture. All labels, ids, and copy below are synthetic placeholders.
+-->
+<html>
+  <body>
+    <!-- ======================================================================
+         state "collapsed-logged-in"
+         ====================================================================== -->
+    <div id="state-collapsed-logged-in">
+      <nav id="sidebar" style="display:none" aria-label="Chat history">
+        <a href="/c/00000000-0000-0000-0000-000000000000">synthetic-conversation-title</a>
+        <button data-testid="profile-button" aria-label="User menu">synthetic-account</button>
+        <a href="/settings/general">Settings</a>
+      </nav>
+      <header id="mobile-topbar">
+        <button data-testid="open-sidebar-button" aria-label="Open sidebar">☰</button>
+      </header>
+      <main>
+        <div id="prompt-textarea" contenteditable="true" data-id="root"></div>
+      </main>
+    </div>
+
+    <!-- ======================================================================
+         state "collapsed-login-screen"
+         ====================================================================== -->
+    <div id="state-collapsed-login-screen">
+      <header id="mobile-topbar-2">
+        <!-- No open-sidebar control exists yet on the logged-out landing page. -->
+      </header>
+      <main>
+        <button data-testid="login-button">로그인</button>
+        <button data-testid="welcome-login-button">Log in</button>
+      </main>
+    </div>
+
+    <!-- ======================================================================
+         state "collapsed-ambiguous-sidebar-controls"
+         ====================================================================== -->
+    <div id="state-collapsed-ambiguous-sidebar-controls">
+      <nav id="sidebar-3" style="display:none" aria-label="Chat history">
+        <a href="/c/11111111-1111-1111-1111-111111111111">synthetic-conversation-title-2</a>
+      </nav>
+      <header id="mobile-topbar-3">
+        <button data-testid="open-sidebar-button" aria-label="Open sidebar">☰</button>
+        <button aria-label="Open sidebar">☰</button>
+      </header>
+      <main>
+        <div id="prompt-textarea" contenteditable="true" data-id="root"></div>
+      </main>
+    </div>
+  </body>
+</html>
+
+<!-- Late hydration: initially no open-sidebar button; after layout a unique semantic button appears. Read-only probes may repeat until it is present; click count must stay one after successful reveal. -->
+
+<!-- ======================================================================
+     Additional synthetic states (2.6.7 latest-source consistency fix; markers ported from
+     packages/providers/aibi-providers.json, no DOM observed on device is claimed)
+     ====================================================================== -->
+<html>
+  <body>
+    <!-- state "newer-localized-profile-marker": a visible newer/localized profile control is
+         genuine positive evidence for authenticatedIndicator (accounts-profile-button,
+         aria-label "프로필 메뉴" / "profile menu"); expected authenticated: true, no sidebar click -->
+    <div id="state-newer-localized-profile-marker">
+      <header><button data-testid="accounts-profile-button" aria-label="프로필 메뉴">synthetic-account</button></header>
+      <main><div id="prompt-textarea" contenteditable="true" data-id="root"></div></main>
+    </div>
+
+    <!-- state "signed-out-composer-plus-login": generic composer present, no profile marker,
+         visible login control; expected authenticated: false, hasLogin: true (composer alone is
+         never evidence) -->
+    <div id="state-signed-out-composer-plus-login">
+      <main>
+        <div id="prompt-textarea" contenteditable="true" data-id="root"></div>
+        <button data-testid="login-button">Log in</button>
+      </main>
+    </div>
+
+    <!-- state "collapsed-then-manually-opened": first read finds only the hidden profile marker
+         (collapsed, unknown, unique Open sidebar control clicked once); after the user (or the
+         single strict click) opens the sidebar the visible marker below yields authenticated: true -->
+    <div id="state-collapsed-then-manually-opened">
+      <nav id="sidebar-4" aria-label="Chat history">
+        <div role="button" aria-label="Profile menu">synthetic-account</div>
+      </nav>
+    </div>
+  </body>
+</html>

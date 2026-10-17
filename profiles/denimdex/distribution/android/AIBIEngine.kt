@@ -20,6 +20,8 @@ import org.json.JSONObject
 import java.io.File
 import java.util.UUID
 
+private const val EVALUATE_SCRIPT_TIMEOUT_MS = 5_000L
+
 class AIBISession(
     private val context: Context,
     private val runtimeJavaScript: String,
@@ -68,6 +70,7 @@ class AIBISession(
     private var currentRunId: String? = null
     private var stabilityText: String? = null
     private var stabilityTickCount = 0
+    private var observationStartTimeMs = 0L
 
     init {
         configureCookieManager()
@@ -141,6 +144,7 @@ class AIBISession(
         taskStartTimeMs = System.currentTimeMillis()
         _lastErrorMessage.value = null
         _pendingResult.value = null
+        observationStartTimeMs = 0L
 
         val runId = diagnosticsStore.start(task.providerId)
         currentRunId = runId
@@ -229,6 +233,7 @@ class AIBISession(
         recordDiagnostic("run_cancelled")
         stopAllJobs()
         generationId++
+        observationStartTimeMs = 0L
         if (_currentPhase.value != AIBIPhase.IDLE) {
             updatePhase(AIBIPhase.CANCELLED, "Cancelled")
         }
@@ -241,6 +246,7 @@ class AIBISession(
         recordDiagnostic("run_cancelled")
         stopAllJobs()
         generationId++
+        observationStartTimeMs = 0L
         activeTask = null
         activeConfig = null
         _activeProviderId.value = null
@@ -618,7 +624,9 @@ class AIBISession(
                 dispatched = reply?.optJSONObject("data")?.opt("attempted") == true
                 drainRuntimeDiagnostics()
                 if (!isActive || generationId != generation) return@launch
-                if (dispatched) break
+                if (dispatched) {
+                    break
+                }
                 if (reply?.optString("code") != "SEND_NOT_READY") {
                     recordDiagnostic("send_blocked")
                     failWithError("Submission could not be confirmed. Please export and share diagnostic logs from Settings.")
@@ -631,7 +639,7 @@ class AIBISession(
             if (!isActive || generationId != generation) return@launch
             if (!dispatched) {
                 recordDiagnostic("send_timeout", mapOf("attempt" to submitAttemptCount))
-                failWithError("Submission readiness timed out. Please export and share diagnostic logs from Settings.")
+                escalateToVisible(AIBIFallbackReason.INPUT_NOT_FOUND)
                 return@launch
             }
 
@@ -642,10 +650,10 @@ class AIBISession(
             while (isActive && generationId == generation) {
                 val elapsed = SystemClock.elapsedRealtime() - startTime
                 if (elapsed > timingProfile.submitTimeoutMs) {
-                    recordDiagnostic("send_timeout", mapOf("attempt" to submitAttemptCount))
+                    recordDiagnostic("send_timeout", mapOf("attempt" to submitAttemptCount, "attachment_verified" to 1))
                     drainRuntimeDiagnostics()
                     if (!isActive || generationId != generation) return@launch
-                    failWithError("Submission pending verification timed out. Please export and share diagnostic logs from Settings.")
+                    failWithErrorPreservingBrowser("Submission was dispatched but answer did not start within the deadline. Please check the conversation in your browser.")
                     break
                 }
 
@@ -683,10 +691,18 @@ class AIBISession(
         activeJob?.cancel()
         stabilityText = null
         stabilityTickCount = 0
+        observationStartTimeMs = SystemClock.elapsedRealtime()
         updatePhase(AIBIPhase.GENERATING, "Waiting for answer...", isWaiting = true)
 
         activeJob = scope.launch {
             while (isActive && generationId == generation) {
+                if (SystemClock.elapsedRealtime() - observationStartTimeMs > 119_000L) {
+                    recordDiagnostic("generation_failed", mapOf("generation_active" to 0, "stable_samples" to stabilityTickCount))
+                    drainRuntimeDiagnostics()
+                    activeJob?.cancel()
+                    failWithErrorPreservingBrowser("Result observation timed out after 119s. Please check the conversation in your browser.")
+                    break
+                }
                 performObservationTick(generation)
                 delay(timingProfile.observationCadenceMs)
             }
@@ -802,6 +818,9 @@ class AIBISession(
                 recordDiagnostic("response_rejected", mapOf("response_length" to result.cleanedText.length))
                 recordDiagnostic("run_failed")
                 updatePhase(AIBIPhase.FAILED, "Host import validation failed: $err")
+                // Keep the current answer and conversation visible for manual takeover;
+                // do NOT navigate home, reload, or destroy the visible/hidden session.
+                presentVisibleBrowser()
             }
         } else {
             recordDiagnostic("result_applied", mapOf("response_length" to result.cleanedText.length))
@@ -817,23 +836,76 @@ class AIBISession(
         drainActiveWebViewDiagnostics()
         recordDiagnostic("run_failed")
         stopAllJobs()
+        generationId++
         _lastErrorMessage.value = message
         updatePhase(AIBIPhase.FAILED, message)
         destroyHiddenBrowser()
         disposeNativeAttachmentBatch()
     }
 
+    // Terminal for the task, but preserves the current browser/session so the user can inspect
+    // what is on screen (e.g. a dispatched prompt or an in-flight answer) instead of tearing it
+    // down. Media is only cleared at a true terminal point (failWithError/completeWithResult).
+    private fun failWithErrorPreservingBrowser(message: String) {
+        drainActiveWebViewDiagnostics()
+        recordDiagnostic("run_failed")
+        stopAllJobs()
+        generationId++
+        _lastErrorMessage.value = message
+        updatePhase(AIBIPhase.FAILED, message)
+        if (!_isVisibleBrowserPresented.value) {
+            promoteHiddenToVisible()
+        }
+    }
+
     private fun escalateToVisible(reason: AIBIFallbackReason) {
         drainActiveWebViewDiagnostics()
         recordDiagnostic("manual_takeover")
         stopAllJobs()
+        generationId++
         updatePhase(AIBIPhase.FALLBACK_REQUIRED, "Opening browser for required action...")
 
-        destroyHiddenBrowser()
-        presentVisibleBrowser()
+        // Seamless takeover: promote existing hidden WebView if present to preserve DOM/session
+        if (!promoteHiddenToVisible()) {
+            presentVisibleBrowser()
+            val config = activeConfig ?: return
+            if (visibleWebView?.url == null) {
+                visibleWebView?.loadUrl(config.initialUrl)
+            }
+        }
+    }
 
-        val config = activeConfig ?: return
-        visibleWebView?.loadUrl(config.initialUrl)
+    // Promotes the hidden automation WebView (if any) to the visible surface in place, preserving
+    // its DOM/session/answer with no reload. Returns false if there was no hidden WebView to promote.
+    private fun promoteHiddenToVisible(): Boolean {
+        val promoted = hiddenWebView ?: return false
+        val previousVisible = visibleWebView
+        if (previousVisible != null && previousVisible !== promoted) {
+            previousVisible.apply {
+                stopLoading()
+                webViewClient = WebViewClient()
+                webChromeClient = WebChromeClient()
+                (parent as? ViewGroup)?.removeView(this)
+                destroy()
+            }
+        }
+
+        (promoted.parent as? ViewGroup)?.removeView(promoted)
+        promoted.alpha = 1f
+        promoted.isClickable = true
+        promoted.isFocusable = true
+        promoted.isFocusableInTouchMode = true
+        promoted.importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_AUTO
+        promoted.settings.setSupportMultipleWindows(true)
+        promoted.webChromeClient = createAttachmentWebChromeClient(promoted)
+        promoted.layoutParams = ViewGroup.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.MATCH_PARENT
+        )
+        visibleWebView = promoted
+        hiddenWebView = null
+        _isVisibleBrowserPresented.value = true
+        return true
     }
 
     val activeWebView: WebView?
@@ -880,19 +952,7 @@ class AIBISession(
     @SuppressLint("SetJavaScriptEnabled")
     fun presentVisibleBrowser() {
         if (visibleWebView == null) {
-            val promoted = hiddenWebView
-            if (promoted != null) {
-                (promoted.parent as? ViewGroup)?.removeView(promoted)
-                promoted.alpha = 1f
-                promoted.isClickable = true
-                promoted.isFocusable = true
-                promoted.layoutParams = ViewGroup.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT,
-                    ViewGroup.LayoutParams.MATCH_PARENT
-                )
-                visibleWebView = promoted
-                hiddenWebView = null
-            } else {
+            if (!promoteHiddenToVisible()) {
                 val webView = WebView(context).apply {
                     settings.javaScriptEnabled = true
                     settings.domStorageEnabled = true
@@ -967,6 +1027,14 @@ class AIBISession(
                 settings.domStorageEnabled = true
                 settings.databaseEnabled = true
                 webViewClient = object : WebViewClient() {
+                    override fun onRenderProcessGone(view: WebView?, detail: RenderProcessGoneDetail?): Boolean {
+                        val dead = view ?: this@apply
+                        dead.stopLoading()
+                        (dead.parent as? ViewGroup)?.removeView(dead)
+                        dead.destroy()
+                        return true
+                    }
+
                     override fun shouldOverrideUrlLoading(
                         popupView: WebView?,
                         request: WebResourceRequest?
@@ -1026,6 +1094,42 @@ class AIBISession(
 
     private fun createSecurityWebViewClient(): WebViewClient {
         return object : WebViewClient() {
+            override fun onRenderProcessGone(view: WebView?, detail: RenderProcessGoneDetail?): Boolean {
+                val deadView = view
+                val isHidden = deadView != null && deadView === hiddenWebView
+                val isVisible = deadView != null && deadView === visibleWebView
+
+                deadView?.apply {
+                    stopLoading()
+                    (parent as? ViewGroup)?.removeView(this)
+                    destroy()
+                }
+
+                if (!isHidden && !isVisible) {
+                    // Stale or unowned renderer (e.g. a view already detached from this session);
+                    // the cleanup above is sufficient and task state must not be disturbed.
+                    return true
+                }
+
+                recordDiagnostic("browser_load_failed")
+                if (isHidden) {
+                    hiddenWebView = null
+                }
+                if (isVisible) {
+                    visibleWebView = null
+                    _isVisibleBrowserPresented.value = false
+                }
+
+                val didCrash = detail?.didCrash() == true
+                val msg = if (didCrash) {
+                    "Renderer process crashed unexpectedly. Please restart the task."
+                } else {
+                    "Renderer process was terminated unexpectedly. Please restart the task."
+                }
+                failWithError(msg)
+                return true
+            }
+
             override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
                 val url = request?.url ?: return false
                 val config = activeConfig ?: return false
@@ -1088,25 +1192,27 @@ class AIBISession(
     }
 
     private suspend fun evaluateScript(webView: WebView, script: String): String? {
-        return suspendCancellableCoroutine { continuation ->
-            Handler(Looper.getMainLooper()).post {
-                if (!continuation.isActive) return@post
-                webView.evaluateJavascript(script) { result ->
-                    if (!continuation.isActive) return@evaluateJavascript
-                    val sanitized = if (result != null && result != "null") {
-                        if (result.startsWith("\"") && result.endsWith("\"") && result.length >= 2) {
-                            try {
-                                JSONObject("{v:$result}").getString("v")
-                            } catch (_: Exception) {
-                                result.substring(1, result.length - 1)
+        return withTimeoutOrNull(EVALUATE_SCRIPT_TIMEOUT_MS) {
+            suspendCancellableCoroutine { continuation ->
+                Handler(Looper.getMainLooper()).post {
+                    if (!continuation.isActive) return@post
+                    webView.evaluateJavascript(script) { result ->
+                        if (!continuation.isActive) return@evaluateJavascript
+                        val sanitized = if (result != null && result != "null") {
+                            if (result.startsWith("\"") && result.endsWith("\"") && result.length >= 2) {
+                                try {
+                                    JSONObject("{v:$result}").getString("v")
+                                } catch (_: Exception) {
+                                    result.substring(1, result.length - 1)
+                                }
+                            } else {
+                                result
                             }
                         } else {
-                            result
+                            null
                         }
-                    } else {
-                        null
+                        continuation.resume(sanitized) {}
                     }
-                    continuation.resume(sanitized) {}
                 }
             }
         }

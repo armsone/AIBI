@@ -1,0 +1,70 @@
+<!--
+sanitized: true
+provider-class: chatgpt (semantic bounded composer root)
+scenario-config: Static markup only; each scenario is an isolated iframe srcdoc. No account, URL, prompt or answer content.
+covers:
+  - composerRoot() in packages/runtime/aibi-browser-runtime.js: nearest ancestor (max 6) of the active editor
+    holding exactly one visible editor and a unique visible semantic attach/send control.
+  - Scenario A: current official structure. Editor DIV role=textbox without id/form; ancestors 1-4 hold no controls;
+    5th ancestor holds the editor plus button aria-label="파일 등 추가", plus voice/model buttons. Expected root: 5th ancestor.
+    Empty composer, no send button, no file input before the menu opens.
+  - Scenario B: conversation history lives outside the composer ancestor. Expected root: composer ancestor, history excluded.
+  - Scenario C: two editors under the nearest semantic ancestor. Expected: reject the root and legacy fallback; ambiguous editors must never share attachment operations.
+  - Scenario D: old form path. Editor inside form with send button. Expected root: the form.
+  - Scenario E: empty composer without send button, explicit attach control only. Expected: attach control resolves root; sendButton() stays null.
+  - Voice, model and generic buttons never qualify as semantic controls.
+synthetic: true
+physical-device-evidence: false
+-->
+<!DOCTYPE html>
+<html lang="ko">
+<head><meta charset="utf-8"><title>ChatGPT Semantic Composer Root Scenarios</title></head>
+<body>
+  <h2>A: 5th-ancestor root</h2>
+  <iframe title="A" srcdoc="<!DOCTYPE html><html><body>
+    <div id='root-a'>
+      <div><div><div><div>
+        <div role='textbox' contenteditable='true'></div>
+      </div></div></div></div>
+      <button aria-label='파일 등 추가'>+</button>
+      <button aria-label='음성 모드 시작'>v</button>
+      <button aria-label='모델 선택'>m</button>
+    </div></body></html>"></iframe>
+
+  <h2>B: history outside</h2>
+  <iframe title="B" srcdoc="<!DOCTYPE html><html><body>
+    <main>
+      <div data-message-author-role='user'>sanitized</div>
+      <div id='root-b'>
+        <div><div><div role='textbox' contenteditable='true'></div></div></div>
+        <button aria-label='파일 등 추가'>+</button>
+      </div>
+    </main></body></html>"></iframe>
+
+  <h2>C: multiple editors (ambiguous)</h2>
+  <iframe title="C" srcdoc="<!DOCTYPE html><html><body>
+    <div id='root-c'>
+      <div role='textbox' contenteditable='true'></div>
+      <div role='textbox' contenteditable='true'></div>
+      <button aria-label='파일 등 추가'>+</button>
+    </div></body></html>"></iframe>
+
+  <h2>D: old form path</h2>
+  <iframe title="D" srcdoc="<!DOCTYPE html><html><body>
+    <form id='root-d'>
+      <textarea id='prompt-textarea'></textarea>
+      <button data-testid='send-button' aria-label='Send message'>s</button>
+    </form></body></html>"></iframe>
+
+  <h2>E: empty composer without send</h2>
+  <iframe title="E" srcdoc="<!DOCTYPE html><html><body>
+    <div id='root-e'>
+      <div><div role='textbox' contenteditable='true'></div></div>
+      <button aria-label='파일 등 추가'>+</button>
+      <button aria-label='음성 모드 시작'>v</button>
+    </div></body></html>"></iframe>
+</body>
+</html>
+
+<!-- Official Korean image preview: one role=button tile with an image and a direct semantic remove button. Count the tile once; legacy selector families may overlap. -->
+<section id="current-preview"><div role="button" aria-label="synthetic.png"><img alt="synthetic.png" src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw=="><button aria-label="synthetic.png 제거">X</button></div></section>
