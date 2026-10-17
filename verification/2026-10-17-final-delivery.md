@@ -67,3 +67,16 @@ AIBI 공개 ZIP의 원본 소스 커밋은 cd655cf2d462460c313d866a345841193be09
 바로보기 iOS는 0.8.12에서 0.8.13/44로 변경했다. 로컬 보관 아카이브는 Release/0.8.13/Barobogi-0.8.13.xcarchive, 소스 보관본은 Release/0.8.13/Barobogi-iOS-0.8.13-source.zip(221개 파일)이며 SHA-256은 018fc35adae559b99135717972328265ed57e56ab59786c4b789756083d6e4b2이다. 새 Git 저장소를 만들지 않았다. 10:50 공식 기존 조회 경로로 VALID, WAITING_FOR_REVIEW, external WAITING_FOR_BETA_REVIEW를 확인했다.
 
 이번 마지막 백업 대상은 이 전달 기록과 2026-10-17-denimdex-attachment-trace.json 두 파일뿐이다. 마지막 기록 커밋의 정확한 해시는 커밋 후 최종 전달 메시지로 보고한다. 이 기록 커밋은 공개 ZIP 원본 커밋 cd655cf2d462460c313d866a345841193be096b9 및 공개 자산을 바꾸지 않는다.
+
+## 연결 복구 후 재개 지점
+
+10:53 KST의 `adb devices -l` 결과도 연결 기기 0대였다. 앞선 턴의 임시 브라우저 탭 정리와 실행 세션 종료 확인은 완료했으며, 이 시점에 실행 중인 설치 작업은 없다.
+
+Android 재개 시 SM_F968N 대상과 연결 식별자를 먼저 확인하고, 다음 두 기존 산출물로 `adb -s <확인한 기기> install -r <APK>`를 수행한다. 앱 삭제·데이터 초기화·서명 전환은 하지 않는다.
+
+- Stargram: `/Users/armsone/git/Stargram-Android/dist/2.6.9/Stargram-Android-2.6.9.apk` (18,133,339바이트)
+- DenimDex: `/Users/armsone/git/DenimDex-Android/dist/0.3.6/DenimDex-Android-0.3.6-device.apk` (48,857,475바이트). 이 기기에는 공개 배포 서명본 대신 기존 설치 인증서와 맞는 이 파일을 사용한다.
+
+설치 후 두 패키지의 versionName/versionCode를 각각 2.6.9/416797, 0.3.6/416797과 대조하고 기존 앱 종료·재실행을 확인한다. 기기 연결이 없는 상태를 설치·실행 성공으로 기록하지 않는다. 새 소스 변경이 없으므로 재빌드·재업로드는 필요하지 않다.
+
+iPhone 정리는 사용자의 실제 기기 사용 전환이 끝나고 제어 가능한 상태가 확인된 후에만 재개한다. 자신이 만든 단색 파란 사진 한 장과 확인용 AI 대화만 대상으로 하며 사용자 원본은 보호한다. TestFlight는 세 앱 모두 제출 완료 상태이므로 외부 승인 대기를 이유로 같은 빌드를 다시 업로드하지 않는다.
