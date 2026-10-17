@@ -162,7 +162,7 @@ struct ExternalAIHiddenAutomatorView: View {
             if bridge.isPageReady, !hasPreparedFreshComposer {
                 guard !hasAttemptedAttach else { return }
                 var prepared = false
-                for _ in 0..<8 where !prepared && !Task.isCancelled {
+                while !prepared && !Task.isCancelled && Date() < deadline {
                     prepared = await bridge.prepareFreshComposer(for: provider)
                     if !prepared && !Task.isCancelled { try? await Task.sleep(nanoseconds: 300_000_000) }
                 }
@@ -571,7 +571,7 @@ struct ExternalAIBrowserSheet: View {
         return attachConfirmed
     }
 
-    /// 첫 자동 첨부 직전에만 작성창을 정리한다(최대 8회 재시도). 이미 정리했거나 첨부를 시도한 뒤에는
+    /// 첫 자동 첨부 직전에만 작성창을 정리한다(최대 35초 동안 300ms 간격으로 재시도). 이미 정리했거나 첨부를 시도한 뒤에는
     /// 다시 실행하지 않아 사용자의 수동 편집과 직접 첨부를 건드리지 않는다.
     /// 정리 도중 취소되어도 같은 작업에서 초기화를 반복하지 않는다.
     private func prepareComposerBeforeFirstAttach() async -> Bool {
@@ -586,7 +586,8 @@ struct ExternalAIBrowserSheet: View {
         }
         composerPreparation = .inProgress
         var prepared = false
-        for _ in 0..<8 where !prepared && !Task.isCancelled {
+        let deadline = Date().addingTimeInterval(35)
+        while !prepared && !Task.isCancelled && Date() < deadline {
             prepared = await bridge.prepareFreshComposer(for: provider)
             if !prepared && !Task.isCancelled {
                 try? await Task.sleep(nanoseconds: 300_000_000)
@@ -1948,17 +1949,27 @@ private enum ExternalAIBrowserScripts {
           const attachmentSelectors = \(jsArray(config.attachmentConfirmed));
 
           function isVisible(element) {
-            if (!element) return false;
-            const style = window.getComputedStyle(element);
-            if (style.display === 'none' || style.visibility === 'hidden') return false;
-            return element.getClientRects().length > 0;
+            return isEditorVisible(element);
+          }
+
+          // 런타임의 isEditorVisible 과 같은 규칙: 숨김/inert 조상 아래의 복제 작성창은 후보가 아니다.
+          function isEditorVisible(element) {
+            if (!element || !element.isConnected || element.nodeType !== 1) return false;
+            const rect = element.getBoundingClientRect();
+            if (!(rect.width > 0 && rect.height > 0)) return false;
+            for (let node = element; node && node.nodeType === 1; node = node.parentElement) {
+              const style = window.getComputedStyle(node);
+              if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') return false;
+              if (node.hidden || node.hasAttribute('inert') || node.getAttribute('aria-hidden') === 'true') return false;
+            }
+            return true;
           }
 
           function firstVisible(selectors) {
             for (const selector of selectors) {
               try {
                 for (const element of document.querySelectorAll(selector)) {
-                  if (element && element.isConnected && isVisible(element)) return element;
+                  if (isEditorVisible(element)) return element;
                 }
               } catch (e) {}
             }
@@ -1966,7 +1977,7 @@ private enum ExternalAIBrowserScripts {
           }
 
           const input = firstVisible(inputSelectors);
-          if (!input || !input.isConnected || !isVisible(input)) return metrics;
+          if (!input) { metrics.reset_error = 4; return metrics; }
 
           function safeRoot(node) {
             if (!node || node === document || node === document.body || node === document.documentElement) return null;
@@ -1974,8 +1985,15 @@ private enum ExternalAIBrowserScripts {
             return node;
           }
           let attachmentRoot = null;
-          if (typeof window.__starManagerAttachmentScope === 'function') {
-            try { attachmentRoot = safeRoot(window.__starManagerAttachmentScope()); } catch (e) { attachmentRoot = null; metrics.reset_error = 2; }
+          if (typeof window.__starManagerAttachmentScope !== 'function') {
+            metrics.reset_error = 5;
+          } else {
+            try {
+              const rawRoot = window.__starManagerAttachmentScope();
+              attachmentRoot = safeRoot(rawRoot);
+              if (!rawRoot) metrics.reset_error = 6;
+              else if (!attachmentRoot) metrics.reset_error = 7;
+            } catch (e) { attachmentRoot = null; metrics.reset_error = 2; }
           }
           metrics.root_present = attachmentRoot ? 1 : 0;
           if (!attachmentRoot) return metrics;
@@ -2233,7 +2251,7 @@ private enum ExternalAIBrowserScripts {
           // 답변 선택자에 더해, 기존 Claude 답변 선택자에 이미 쓰이는 사용자 메시지 클래스만 추가한다.
           // 사용자 전용 대화만 담은 기록 루트도 기록으로 거부하도록 긍정 가드를 함께 둔다.
           const historySelectors = assistantSelectors
-            .concat(["[data-message-author-role]", "[data-testid*='conversation-turn']", "[data-testid*='user-message']"])
+            .concat(["[data-message-author-role]", "[data-user-message-bubble]", "[data-conversation-role]", "[data-testid*='conversation-turn']", "[data-testid*='user-message']"])
             .concat(\(jsArray(provider == .claude ? [".font-user-message"] : [])));
 
           function queryFirst(selectors) {
@@ -2241,6 +2259,32 @@ private enum ExternalAIBrowserScripts {
               try {
                 const el = document.querySelector(sel);
                 if (el) return el;
+              } catch (e) {}
+            }
+            return null;
+          }
+
+          // 모바일 공식 DOM 에는 숨겨진 작성창 복제본이 있어 querySelector 의 첫 노드가 보이는
+          // 작성창이 아닐 수 있다. 각 selector 의 모든 매치를 돌며 연결되고 보이는 첫 작성창을 고르고,
+          // 없으면 숨겨진 원본 노드로 되돌리지 않고 null 을 반환한다.
+          function isEditorVisible(element) {
+            if (!element || !element.isConnected || element.nodeType !== 1) return false;
+            const rect = element.getBoundingClientRect();
+            if (!(rect.width > 0 && rect.height > 0)) return false;
+            for (let node = element; node && node.nodeType === 1; node = node.parentElement) {
+              const style = window.getComputedStyle(node);
+              if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') return false;
+              if (node.hidden || node.hasAttribute('inert') || node.getAttribute('aria-hidden') === 'true') return false;
+            }
+            return true;
+          }
+
+          function queryEditor() {
+            for (const sel of inputSelectors) {
+              try {
+                for (const el of document.querySelectorAll(sel)) {
+                  if (isEditorVisible(el)) return el;
+                }
               } catch (e) {}
             }
             return null;
@@ -2271,10 +2315,7 @@ private enum ExternalAIBrowserScripts {
           }
 
           function isVisible(element) {
-            if (!element) return false;
-            const style = window.getComputedStyle(element);
-            if (style.display === 'none' || style.visibility === 'hidden') return false;
-            return element.getClientRects().length > 0;
+            return isEditorVisible(element);
           }
 
           function isGeneratingNow() {
@@ -2284,7 +2325,7 @@ private enum ExternalAIBrowserScripts {
           }
 
           function composerScope() {
-            const input = queryFirst(inputSelectors);
+            const input = queryEditor();
             if (input && usesSemanticComposerRoot && !input.closest('form')) {
               const semantic = semanticComposerRoot();
               // false 는 모호성(작성창/컨트롤 복수, 기록 포함, 루트 경계) 하드 거부 표지다.
@@ -2304,7 +2345,7 @@ private enum ExternalAIBrowserScripts {
             for (const selector of inputSelectors) {
               try {
                 for (const el of node.querySelectorAll(selector)) {
-                  if (!editors.includes(el) && isVisible(el)) editors.push(el);
+                  if (!editors.includes(el) && isEditorVisible(el)) editors.push(el);
                 }
               } catch (e) {}
             }
@@ -2349,7 +2390,7 @@ private enum ExternalAIBrowserScripts {
           // false(하드 거부 표지)를 돌려주고, 해당 없음/찾지 못함은 null 이다.
           function semanticComposerRoot() {
             if (!usesSemanticComposerRoot) return null;
-            const editor = queryFirst(inputSelectors);
+            const editor = queryEditor();
             if (!editor || !editor.isConnected || !isVisible(editor) || editor.closest('form')) return null;
             let node = editor.parentElement;
             for (let depth = 0; node && depth < semanticRootMaxDepth; depth++) {
@@ -2385,7 +2426,7 @@ private enum ExternalAIBrowserScripts {
           // 가장 가까운 조상에서 정확히 1개일 때만 반환한다. 실측 depth 근거는 루트 검증 문서 참고.
           function ancestorSendButton(scope) {
             if (!allowsAncestorSendSearch || !scope) return null;
-            const input = queryFirst(inputSelectors);
+            const input = queryEditor();
             if (!input || input.closest('form')) return null;
             let node = scope.parentElement;
             while (node && node !== document.body && node !== document.documentElement) {
@@ -2447,7 +2488,7 @@ private enum ExternalAIBrowserScripts {
           // formless Gemini·Claude 의 확장 카운트는 보이는 제거 버튼 기능이 확인된 미리보기만 센다.
           function countAttachmentsIn(node, requiresRemoval) {
             if (!node) return 0;
-            const editor = queryFirst(inputSelectors);
+            const editor = queryEditor();
             const isFormlessGeminiClaude = allowsAncestorSendSearch && (!editor || !editor.closest('form'));
             const checkRemoval = requiresRemoval !== undefined ? requiresRemoval : isFormlessGeminiClaude;
             for (const selector of attachmentConfirmedSelectors) {
@@ -2472,7 +2513,7 @@ private enum ExternalAIBrowserScripts {
           function attachmentScope() {
             const scope = composerScope();
             if (!scope) return null;
-            const editor = queryFirst(inputSelectors);
+            const editor = queryEditor();
             // ChatGPT form 없는 작성창: 의미 기반 루트(또는 안전할 때만 기존 3단계 폴백)를 쓴다.
             // 보내기 버튼이 없어도(빈 작성창) 의미 기반 첨부 버튼만으로 동작한다.
             if (usesSemanticComposerRoot && editor && !editor.closest('form')) {
@@ -2579,7 +2620,7 @@ private enum ExternalAIBrowserScripts {
           // 덮어쓰지 않는다(자동 채우기가 사용자 편집을 방해하지 않도록).
           window.__starManagerFillPrompt = function(text, force) {
             if (window.__starManagerSubmitDispatched) return false;
-            const el = queryFirst(inputSelectors);
+            const el = queryEditor();
             if (!el) return false;
             const isTextField = el.tagName === 'TEXTAREA' || el.tagName === 'INPUT';
             const current = (isTextField ? el.value : (el.innerText || el.textContent || '')).trim();
@@ -2611,7 +2652,7 @@ private enum ExternalAIBrowserScripts {
                 .replace(/&/g, '&amp;')
                 .replace(/</g, '&lt;')
                 .replace(/>/g, '&gt;')
-                .replace(/\r\n|\r|\n/g, '<br>');
+                .replace(/\\r\\n|\\r|\\n/g, '<br>');
               const inserted = document.execCommand('insertHTML', false, html);
               if (!inserted) {
                 el.replaceChildren(document.createTextNode(text));
@@ -2634,7 +2675,7 @@ private enum ExternalAIBrowserScripts {
             // again while waiting for proof, and never turn a consumed image request into text-only.
             if (window.__starManagerSubmitDispatched) return true;
             if (isGeneratingNow()) return false;
-            const input = queryFirst(inputSelectors);
+            const input = queryEditor();
             const button = sendButton();
             if (!input || !button || button.disabled || button.getAttribute('aria-disabled') === 'true') return false;
             const normalize = value => value.replace(/\\s+/g, ' ').trim();
@@ -2731,7 +2772,7 @@ private enum ExternalAIBrowserScripts {
           let stableTicks = 0;
 
           setInterval(function() {
-            const editor = queryFirst(inputSelectors);
+            const editor = queryEditor();
             const scope = composerScope();
             const send = sendButton();
             window.webkit.messageHandlers.starManagerBridge.postMessage({diagnosticEvent:'bridge_snapshot', metrics: {
@@ -2740,7 +2781,7 @@ private enum ExternalAIBrowserScripts {
               composer_present: editor ? 1 : 0, send_present: send ? 1 : 0,
               send_enabled: send && !send.disabled && send.getAttribute('aria-disabled') !== 'true' ? 1 : 0,
               prompt_length: editor ? (editor.value || editor.textContent || '').length : 0,
-              user_message_present: document.querySelector('[data-message-author-role=user]') ? 1 : 0,
+              user_message_present: document.querySelector('[data-message-author-role=user], [data-user-message-bubble]') ? 1 : 0,
               assistant_message_present: queryAll(assistantSelectors).length ? 1 : 0,
               generation_active: isGeneratingNow() ? 1 : 0,
               stop_present: isGeneratingNow() ? 1 : 0
@@ -2971,6 +3012,7 @@ private enum ExternalAIBrowserScripts {
                     "textarea[data-testid]"
                 ],
                 assistant: [
+                    "[data-markdown-text-style='assistant-message']",
                     "[data-message-author-role='assistant']",
                     "div.agent-turn",
                     "div[data-testid*='conversation-turn'] .markdown"

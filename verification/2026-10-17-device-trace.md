@@ -13,3 +13,13 @@ Test runners and forced renderer-crash instrumentation were not used.
 - The visible browser's Cancel changed the stage to cancelled but left the sheet open. Source: QuickValueRunner.cancel calls session.cancelCurrentTask(), which intentionally preserves a visible view; session.dismissVisibleBrowserForCancel() already exists and closes it. This one-call host wiring defect is included in the next correction.
 
 - 10:00: DenimDex 0.3.5 current-preview candidate completed one synthetic-image run. Diagnostics confirm attachment_ready count=expected=1, send attempt=1 observed, generation completed at 27.2s with three stable samples, result_applied and run_completed. Native UI showed a judgement-held result, appropriate for a solid blue non-denim image. No full answer retained.
+
+### 10:13–10:15 KST Stargram final mobile-control candidate
+
+After replacement and relaunch, settings background probes had not yet confirmed ChatGPT. Opening the ChatGPT login row showed the official login sheet, which then automatically recognized the existing session and dismissed without manually opening its sidebar. The row became logged in. This confirms the visible login-sheet path; it does not establish background-probe success.
+
+A subsequent single synthetic blue-image task stopped before attachment upload with the prior-attachment preparation error. Sanitized diagnostics recorded eight reset attempts with composer_ready=0/root_present=0, followed by attachment_failed and run_failed. No prompt or image was automatically submitted by that failed attempt. Cancel returned to the host and preserved the synthetic selection. Hidden-editor lookup alignment is being corrected and requires a new device check.
+
+## Root cause: Swift string regex escape (syntax only, no personal data)
+
+The expanded observer failed `node --check` (invalid regex, missing `/`). The HTML-conversion regex was written with single Swift backslashes (`/\r\n|\r|\n/g`), so the compiled Swift string put real newlines inside the JS regex literal and the whole observer failed to parse (no helper, no snapshot). Fix: double backslashes in the Swift source (`/\\r\\n|\\r|\\n/g`). Verified by expanding the Swift string literals and running `node --check` on the full observer.

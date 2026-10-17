@@ -13,6 +13,33 @@ object ExternalAIScripts {
 
     private val gson = Gson()
 
+    /**
+     * 입력창 조회용 공용 가시성 헬퍼. 숨겨진 복제본(hidden clone)을 건너뛰고
+     * 연결됨 + 크기 + display/visibility/opacity(조상 포함) + aria-hidden/inert 조상이 없는 첫 요소만 반환한다.
+     */
+    private val editorVisibilityHelpers = """
+        function editorUsable(el) {
+            if (!el || !el.isConnected || el.nodeType !== 1) return false;
+            var r = el.getBoundingClientRect();
+            if (!(r.width > 0 && r.height > 0)) return false;
+            for (var n = el; n && n.nodeType === 1; n = n.parentElement) {
+                var s = getComputedStyle(n);
+                if (s.display === 'none' || s.visibility === 'hidden' || s.opacity === '0') return false;
+                if (n.hasAttribute('inert') || n.getAttribute('aria-hidden') === 'true') return false;
+            }
+            return true;
+        }
+        function queryFirstEditor(selectors) {
+            for (var i = 0; i < selectors.length; i++) {
+                try {
+                    var all = document.querySelectorAll(selectors[i]);
+                    for (var j = 0; j < all.length; j++) if (editorUsable(all[j])) return all[j];
+                } catch (e) {}
+            }
+            return null;
+        }
+    """.trimIndent()
+
     private fun submissionHelpers(provider: DirectAIProvider): String {
         val config = providerSelectors(provider)
         val allowAncestorSearch = provider == DirectAIProvider.GEMINI || provider == DirectAIProvider.CLAUDE
@@ -32,8 +59,9 @@ object ExternalAIScripts {
                 } return null;
             }
             var allowAncestorSearch=$allowAncestorSearch;
-            var input=firstVisible(${config.input});
-            var historySelector='model-response,message-content,user-query,[data-test-id="model-response"],[data-test-id="user-query"],[data-testid="transcript-row"],[data-testid*="conversation-turn"],[data-testid*="assistant"],[data-testid*="user-message"],.font-claude-message,.font-claude-response,.font-user-message,[data-message-author-role]';
+            ${editorVisibilityHelpers}
+            var input=queryFirstEditor(${config.input});
+            var historySelector='model-response,message-content,user-query,[data-test-id="model-response"],[data-test-id="user-query"],[data-testid="transcript-row"],[data-testid*="conversation-turn"],[data-testid*="assistant"],[data-testid*="user-message"],.font-claude-message,.font-claude-response,.font-user-message,[data-message-author-role],[data-user-message-bubble],[data-conversation-role]';
             function isSafeComposerRoot(node) {
                 if(!node || node===document || node===document.body || node===document.documentElement || node.nodeType!==1) return false;
                 if(node.tagName==='BODY' || node.tagName==='HTML') return false;
@@ -80,7 +108,7 @@ object ExternalAIScripts {
                 for(var i=0;i<selectors.length;i++) {
                     try {
                         var nodes=root.querySelectorAll(selectors[i]);
-                        for(var j=0;j<nodes.length;j++) if(visible(nodes[j]) && found.indexOf(nodes[j])===-1) found.push(nodes[j]);
+                        for(var j=0;j<nodes.length;j++) if(editorUsable(nodes[j]) && found.indexOf(nodes[j])===-1) found.push(nodes[j]);
                     } catch(_) {}
                 }
                 return found.length;
@@ -140,7 +168,7 @@ object ExternalAIScripts {
                 }
                 // Extend preview scope to nearest connected ancestor for form-less Gemini/Claude.
                 if(!allowAncestorSearch || !input || input.closest('form')) return 0;
-                var historySelector='model-response,message-content,user-query,[data-test-id="model-response"],[data-test-id="user-query"],[data-testid="transcript-row"],[data-testid*="conversation-turn"],[data-testid*="assistant"],[data-testid*="user-message"],.font-claude-message,.font-claude-response,.font-user-message,[data-message-author-role]';
+                var historySelector='model-response,message-content,user-query,[data-test-id="model-response"],[data-test-id="user-query"],[data-testid="transcript-row"],[data-testid*="conversation-turn"],[data-testid*="assistant"],[data-testid*="user-message"],.font-claude-message,.font-claude-response,.font-user-message,[data-message-author-role],[data-user-message-bubble],[data-conversation-role]';
                 var sharedAncestor=null;
                 var curr=input.parentElement;
                 while(curr && curr!==document.body && curr!==document.documentElement && curr.nodeType===1) {
@@ -703,6 +731,8 @@ object ExternalAIScripts {
                     var loginSelectors = ${config.login};
                     var challengeSelectors = ${config.challenge};
 
+                    ${editorVisibilityHelpers}
+
                     function queryFirst(selectors) {
                         for (var i = 0; i < selectors.length; i++) {
                             try {
@@ -740,7 +770,7 @@ object ExternalAIScripts {
                         }
                     }
 
-                    var inputEl = queryFirst(inputSelectors);
+                    var inputEl = queryFirstEditor(inputSelectors);
                     if (!inputEl) {
                         return JSON.stringify({
                             success: true,
@@ -780,6 +810,8 @@ object ExternalAIScripts {
                     var text = $encodedPrompt;
                     var force = $force;
 
+                    ${editorVisibilityHelpers}
+
                     function queryFirst(selectors) {
                         for (var i = 0; i < selectors.length; i++) {
                             try {
@@ -790,7 +822,7 @@ object ExternalAIScripts {
                         return null;
                     }
 
-                    var el = queryFirst(inputSelectors);
+                    var el = queryFirstEditor(inputSelectors);
                     if (!el) {
                         return JSON.stringify({
                             success: false,
@@ -907,13 +939,9 @@ object ExternalAIScripts {
         return """
             (function() {
                 if(window.__sm_cancelled || window.__sm_submit_dispatched) return JSON.stringify({success:false,found:false,error:'TASK_NOT_WRITABLE'});
-                var selectors = ${config.input};
-                for (var i = 0; i < selectors.length; i++) {
-                    try {
-                        var el = document.querySelector(selectors[i]);
-                        if (el) { el.focus(); return true; }
-                    } catch (_) {}
-                }
+                ${editorVisibilityHelpers}
+                var el = queryFirstEditor(${config.input});
+                if (el) { el.focus(); return true; }
                 return false;
             })();
         """.trimIndent()
@@ -929,6 +957,8 @@ object ExternalAIScripts {
                     var assistantSelectors = ${config.assistant};
                     var generatingSelectors = ${config.generating};
                     var baseline = $baselineCount;
+
+                    ${editorVisibilityHelpers}
 
                     function queryFirst(selectors) {
                         for (var i = 0; i < selectors.length; i++) {
@@ -957,7 +987,7 @@ object ExternalAIScripts {
                         return el.offsetWidth > 0 || el.offsetHeight > 0 || el.getClientRects().length > 0;
                     }
 
-                    var inputEl = queryFirst(inputSelectors);
+                    var inputEl = queryFirstEditor(inputSelectors);
                     var isTextField = inputEl && (inputEl.tagName === 'TEXTAREA' || inputEl.tagName === 'INPUT');
                     var current = inputEl ? (isTextField ? inputEl.value : (inputEl.innerText || inputEl.textContent || '')).trim() : '';
                     var inputCleared = !!inputEl && current.length === 0;
@@ -1762,6 +1792,7 @@ object ExternalAIScripts {
                 ),
                 assistant = toJsonArray(
                     listOf(
+                        "[data-markdown-text-style='assistant-message']",
                         "[data-message-author-role='assistant']",
                         "div.agent-turn",
                         "div[data-testid*='conversation-turn'] .markdown"

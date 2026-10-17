@@ -74,6 +74,23 @@
         "stop_present": 0
       },
       "condition": "All 8 thumbnails confirmed, send button present, history excluded from attachment count."
+    },
+    {
+      "trace_id": "chatgpt-hidden-editor-clone-ios-01",
+      "provider": "chatgpt",
+      "platform": "ios",
+      "stage": "composer_reset",
+      "metrics": {
+        "editor_matches": 2,
+        "editor_visible": 1,
+        "editor_hidden_clone": 1,
+        "root_present": 1,
+        "composer_ready": 1,
+        "reset_tiles": 0,
+        "reset_clicks": 0,
+        "reset_error": 0
+      },
+      "condition": "Expected fixture state (not executed), chatgpt-hidden-editor-clone.html: hidden aria-hidden clone precedes the visible editor in document order; the visible connected editor is selected by both reset and runtime. Synthetic expected counts only, not a measured device result. Before fix (observed device, sanitized): composer_ready=0, root_present=0, reset_tiles=0, reset_clicks=0, reset_error=0."
     }
   ]
 }
