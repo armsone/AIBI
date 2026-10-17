@@ -1,17 +1,455 @@
 {
-  "observedAtKST":"2026-10-17 09:37-09:39",
-  "syntheticMedia":{"count":1,"width":512,"height":512,"kind":"solid-blue"},
-  "appVersion":"0.3.4",
-  "appBuild":"202610170859",
-  "osVersion":"27.0.1",
-  "observations":[
-    {"stage":"composer_found","atMs":2134,"composer_present":1},
-    {"stage":"attachment_dispatched","atMs":2941,"attached_count":1},
-    {"stage":"attachment_timeout","atMs":33993,"expected_count":1,"preview_count":0},
-    {"stage":"attachment_dispatched","atMs":35493,"attached_count":1},
-    {"stage":"attachment_timeout","atMs":65802,"expected_count":1,"preview_count":0},
-    {"stage":"attachment_failed","atMs":65812,"expected_count":1},
-    {"stage":"bridge_snapshot","composer_present":1,"input_count":4,"preview_count":0,"uploading_count":0,"prompt_length":0,"send_present":1,"send_enabled":1,"assistant_message_present":0,"user_message_present":0}
+  "observedAtKST": "2026-10-17 09:37-09:39",
+  "syntheticMedia": {
+    "count": 1,
+    "width": 512,
+    "height": 512,
+    "kind": "solid-blue"
+  },
+  "appVersion": "0.3.4",
+  "appBuild": "202610170859",
+  "osVersion": "27.0.1",
+  "observations": [
+    {
+      "stage": "composer_found",
+      "atMs": 2134,
+      "composer_present": 1
+    },
+    {
+      "stage": "attachment_dispatched",
+      "atMs": 2941,
+      "attached_count": 1
+    },
+    {
+      "stage": "attachment_timeout",
+      "atMs": 33993,
+      "expected_count": 1,
+      "preview_count": 0
+    },
+    {
+      "stage": "attachment_dispatched",
+      "atMs": 35493,
+      "attached_count": 1
+    },
+    {
+      "stage": "attachment_timeout",
+      "atMs": 65802,
+      "expected_count": 1,
+      "preview_count": 0
+    },
+    {
+      "stage": "attachment_failed",
+      "atMs": 65812,
+      "expected_count": 1
+    },
+    {
+      "stage": "bridge_snapshot",
+      "composer_present": 1,
+      "input_count": 4,
+      "preview_count": 0,
+      "uploading_count": 0,
+      "prompt_length": 0,
+      "send_present": 1,
+      "send_enabled": 1,
+      "assistant_message_present": 0,
+      "user_message_present": 0
+    }
   ],
-  "interpretation":"Both native and fallback reported dispatch but no preview was recognized. Dispatch does not prove usable attachment. No prompt/user message or answer observed. Composer root/selector vs actual upload cause still unknown."
+  "interpretation": "Both native and fallback reported dispatch but no preview was recognized. Dispatch does not prove usable attachment. No prompt/user message or answer observed. Composer root/selector vs actual upload cause still unknown.",
+  "finalCandidates": [
+    {
+      "observedAtKST": "2026-10-17 10:45",
+      "sanitized": true,
+      "appVersion": "0.3.6",
+      "appBuild": "202610171037",
+      "provider": "chatgpt",
+      "syntheticMedia": {
+        "count": 1,
+        "width": 512,
+        "height": 512,
+        "kind": "solid-blue"
+      },
+      "status": "result-applied-and-run-completed",
+      "evidenceBoundary": "One final-candidate iPhone ChatGPT one-image run verified by read-only numeric diagnostics. No prompt, full answer, account, conversation URL, or run identifier retained. Other devices/providers and multi-image flows remain outside this success claim.",
+      "events": [
+        {
+          "stage": "run_started",
+          "elapsedMilliseconds": 0,
+          "metrics": {}
+        },
+        {
+          "stage": "browser_loaded",
+          "elapsedMilliseconds": 1641,
+          "metrics": {}
+        },
+        {
+          "stage": "composer_found",
+          "elapsedMilliseconds": 2136,
+          "metrics": {
+            "composer_present": 1
+          }
+        },
+        {
+          "stage": "attachment_started",
+          "elapsedMilliseconds": 2155,
+          "metrics": {
+            "expected_count": 1
+          }
+        },
+        {
+          "stage": "attachment_dispatched",
+          "elapsedMilliseconds": 2575,
+          "metrics": {
+            "attached_count": 1
+          }
+        },
+        {
+          "stage": "attachment_ready",
+          "elapsedMilliseconds": 3326,
+          "metrics": {
+            "attached_count": 1,
+            "expected_count": 1
+          }
+        },
+        {
+          "stage": "send_attempted",
+          "elapsedMilliseconds": 4745,
+          "metrics": {
+            "attachment_verified": 1
+          }
+        },
+        {
+          "stage": "request_started",
+          "elapsedMilliseconds": 5477,
+          "metrics": {
+            "request_has_messages": 0,
+            "request_id": 1,
+            "request_kind": 2
+          }
+        },
+        {
+          "stage": "request_response",
+          "elapsedMilliseconds": 5486,
+          "metrics": {
+            "http_status": 200,
+            "request_id": 1,
+            "request_kind": 2
+          }
+        },
+        {
+          "stage": "request_started",
+          "elapsedMilliseconds": 5493,
+          "metrics": {
+            "request_has_messages": 0,
+            "request_id": 2,
+            "request_kind": 1
+          }
+        },
+        {
+          "stage": "request_started",
+          "elapsedMilliseconds": 5498,
+          "metrics": {
+            "request_has_messages": 0,
+            "request_id": 3,
+            "request_kind": 2
+          }
+        },
+        {
+          "stage": "request_started",
+          "elapsedMilliseconds": 5504,
+          "metrics": {
+            "request_has_messages": 0,
+            "request_id": 4,
+            "request_kind": 1
+          }
+        },
+        {
+          "stage": "request_response",
+          "elapsedMilliseconds": 5508,
+          "metrics": {
+            "http_status": 200,
+            "request_id": 3,
+            "request_kind": 2
+          }
+        },
+        {
+          "stage": "request_response",
+          "elapsedMilliseconds": 5512,
+          "metrics": {
+            "http_status": 200,
+            "request_id": 2,
+            "request_kind": 1
+          }
+        },
+        {
+          "stage": "request_started",
+          "elapsedMilliseconds": 5515,
+          "metrics": {
+            "request_has_messages": 0,
+            "request_id": 5,
+            "request_kind": 1
+          }
+        },
+        {
+          "stage": "request_response",
+          "elapsedMilliseconds": 5519,
+          "metrics": {
+            "http_status": 200,
+            "request_id": 4,
+            "request_kind": 1
+          }
+        },
+        {
+          "stage": "request_started",
+          "elapsedMilliseconds": 5521,
+          "metrics": {
+            "request_has_messages": 0,
+            "request_id": 6,
+            "request_kind": 1
+          }
+        },
+        {
+          "stage": "request_response",
+          "elapsedMilliseconds": 5524,
+          "metrics": {
+            "http_status": 200,
+            "request_id": 5,
+            "request_kind": 1
+          }
+        },
+        {
+          "stage": "request_started",
+          "elapsedMilliseconds": 5529,
+          "metrics": {
+            "request_has_messages": 0,
+            "request_id": 7,
+            "request_kind": 2
+          }
+        },
+        {
+          "stage": "request_response",
+          "elapsedMilliseconds": 5532,
+          "metrics": {
+            "http_status": 200,
+            "request_id": 6,
+            "request_kind": 1
+          }
+        },
+        {
+          "stage": "request_response",
+          "elapsedMilliseconds": 5534,
+          "metrics": {
+            "http_status": 200,
+            "request_id": 7,
+            "request_kind": 2
+          }
+        },
+        {
+          "stage": "send_attempted",
+          "elapsedMilliseconds": 5536,
+          "metrics": {}
+        },
+        {
+          "stage": "bridge_snapshot",
+          "elapsedMilliseconds": 5538,
+          "metrics": {
+            "assistant_message_present": 0,
+            "composer_present": 1,
+            "generation_active": 0,
+            "input_count": 4,
+            "preview_count": 1,
+            "prompt_length": 3690,
+            "send_enabled": 0,
+            "send_present": 0,
+            "stop_present": 0,
+            "uploading_count": 2,
+            "user_message_present": 0
+          }
+        },
+        {
+          "stage": "request_started",
+          "elapsedMilliseconds": 6615,
+          "metrics": {
+            "request_has_messages": 1,
+            "request_id": 8,
+            "request_kind": 2
+          }
+        },
+        {
+          "stage": "request_started",
+          "elapsedMilliseconds": 6617,
+          "metrics": {
+            "request_has_messages": 0,
+            "request_id": 9,
+            "request_kind": 1
+          }
+        },
+        {
+          "stage": "bridge_snapshot",
+          "elapsedMilliseconds": 6619,
+          "metrics": {
+            "assistant_message_present": 0,
+            "composer_present": 1,
+            "generation_active": 1,
+            "input_count": 8,
+            "preview_count": 0,
+            "prompt_length": 0,
+            "send_enabled": 0,
+            "send_present": 0,
+            "stop_present": 1,
+            "uploading_count": 0,
+            "user_message_present": 1
+          }
+        },
+        {
+          "stage": "send_observed",
+          "elapsedMilliseconds": 6621,
+          "metrics": {}
+        },
+        {
+          "stage": "request_response",
+          "elapsedMilliseconds": 7333,
+          "metrics": {
+            "http_status": 200,
+            "request_id": 9,
+            "request_kind": 1
+          }
+        },
+        {
+          "stage": "request_started",
+          "elapsedMilliseconds": 7339,
+          "metrics": {
+            "request_has_messages": 0,
+            "request_id": 10,
+            "request_kind": 1
+          }
+        },
+        {
+          "stage": "request_response",
+          "elapsedMilliseconds": 8033,
+          "metrics": {
+            "http_status": 200,
+            "request_id": 10,
+            "request_kind": 1
+          }
+        },
+        {
+          "stage": "request_response",
+          "elapsedMilliseconds": 8035,
+          "metrics": {
+            "http_status": 200,
+            "request_id": 8,
+            "request_kind": 2
+          }
+        },
+        {
+          "stage": "bridge_snapshot",
+          "elapsedMilliseconds": 9433,
+          "metrics": {
+            "assistant_message_present": 1,
+            "composer_present": 1,
+            "generation_active": 1,
+            "input_count": 8,
+            "preview_count": 0,
+            "prompt_length": 0,
+            "send_enabled": 0,
+            "send_present": 0,
+            "stop_present": 1,
+            "uploading_count": 0,
+            "user_message_present": 1
+          }
+        },
+        {
+          "stage": "request_started",
+          "elapsedMilliseconds": 29735,
+          "metrics": {
+            "request_has_messages": 0,
+            "request_id": 11,
+            "request_kind": 2
+          }
+        },
+        {
+          "stage": "request_started",
+          "elapsedMilliseconds": 29745,
+          "metrics": {
+            "request_has_messages": 0,
+            "request_id": 12,
+            "request_kind": 2
+          }
+        },
+        {
+          "stage": "request_response",
+          "elapsedMilliseconds": 29752,
+          "metrics": {
+            "http_status": 200,
+            "request_id": 12,
+            "request_kind": 2
+          }
+        },
+        {
+          "stage": "bridge_snapshot",
+          "elapsedMilliseconds": 29757,
+          "metrics": {
+            "assistant_message_present": 1,
+            "composer_present": 1,
+            "generation_active": 0,
+            "input_count": 8,
+            "preview_count": 0,
+            "prompt_length": 0,
+            "send_enabled": 0,
+            "send_present": 1,
+            "stop_present": 0,
+            "uploading_count": 0,
+            "user_message_present": 1
+          }
+        },
+        {
+          "stage": "request_response",
+          "elapsedMilliseconds": 30436,
+          "metrics": {
+            "http_status": 200,
+            "request_id": 11,
+            "request_kind": 2
+          }
+        },
+        {
+          "stage": "bridge_snapshot",
+          "elapsedMilliseconds": 30446,
+          "metrics": {
+            "assistant_message_present": 1,
+            "composer_present": 1,
+            "generation_active": 0,
+            "input_count": 8,
+            "preview_count": 0,
+            "prompt_length": 0,
+            "send_enabled": 0,
+            "send_present": 0,
+            "stop_present": 0,
+            "uploading_count": 0,
+            "user_message_present": 1
+          }
+        },
+        {
+          "stage": "generation_completed",
+          "elapsedMilliseconds": 31133,
+          "metrics": {
+            "response_length": 2434,
+            "stable_samples": 3
+          }
+        },
+        {
+          "stage": "result_applied",
+          "elapsedMilliseconds": 31141,
+          "metrics": {
+            "response_length": 2434
+          }
+        },
+        {
+          "stage": "run_completed",
+          "elapsedMilliseconds": 31144,
+          "metrics": {}
+        }
+      ]
+    }
+  ]
 }
