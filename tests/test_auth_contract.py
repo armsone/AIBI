@@ -106,6 +106,104 @@ class AuthenticationContractTests(unittest.TestCase):
             {"authenticated": True, "hasLogin": False, "hasChallenge": False},
         )
 
+    def test_ios_chatgpt_sidebar_open_is_bounded_retry_not_single_shot(self):
+        source = (
+            ROOT / "profiles/imanager/distribution/ios/ExternalAIBrowserView.swift"
+        ).read_text()
+        check = source.split("func checkAuthStatus(provider: ExternalAIProvider)", 1)[1].split(
+            "private static func evaluateBoundedSidebarOpen", 1
+        )[0]
+        self.assertNotIn("sidebarOpenAttempted", source)
+        self.assertIn("private static let maxSidebarOpenAttempts = 6", source)
+        self.assertIn("sidebarOpenAttempts = 0", source)
+        # Only an ambiguous result may click, and only a confirmed click consumes an attempt.
+        self.assertIn("!result.authenticated, !result.hasLogin, !result.hasChallenge", check)
+        self.assertIn("sidebarOpenAttempts < Self.maxSidebarOpenAttempts", check)
+        self.assertLess(check.index("guard didOpen"), check.index("sidebarOpenAttempts += 1"))
+        # Authentication still comes only from the provider-specific probe after opening.
+        self.assertIn("let afterOpen = await Self.evaluateBounded(script, in: webView, timeout: 5)", check)
+        self.assertIn("return afterOpen", check)
+        sidebar = source.split("static func openChatGPTSidebarScript", 1)[1].split(
+            "private static func selectors", 1
+        )[0]
+        self.assertIn("visible.length === 1", sidebar)
+        self.assertIn("[aria-expanded='false']", sidebar)
+
+        # Claude: exact semantic sidebar markers only; a stateless toggle is clicked at most once per page.
+        self.assertIn("guard let openScript = ExternalAIBrowserScripts.openSidebarScript(for: provider, allowStatelessToggle: allowStatelessToggle)", check)
+        self.assertIn("let allowStatelessToggle = !statelessSidebarToggleUsed && ambiguousAuthChecks >= 2", check)
+        self.assertIn("if clickKind == 2 { statelessSidebarToggleUsed = true }", check)
+        self.assertNotIn("provider == .openAI", check)
+        start = source.split("fileprivate func didStartNavigation() {", 1)[1].split("\n    }\n", 1)[0]
+        for reset in ("statelessSidebarToggleUsed = false", "ambiguousAuthChecks = 0", "controlDiagnosticsRecorded = false"):
+            self.assertIn(reset, start)
+        dispatch = source.split("static func openSidebarScript(for provider", 1)[1].split(
+            "private static let claudeSidebarOpenLabels", 1
+        )[0]
+        self.assertIn("case .openAI: openChatGPTSidebarScript()", dispatch)
+        self.assertIn("case .claude: openClaudeSidebarScript(allowStatelessToggle: allowStatelessToggle)", dispatch)
+        self.assertIn("case .gemini, .grok: nil", dispatch)
+        markers = source.split("private static let claudeSidebarOpenLabels", 1)[1].split(
+            "static func openClaudeSidebarScript", 1
+        )[0]
+        claude = source.split("static func openClaudeSidebarScript", 1)[1].split(
+            "static func claudeSidebarControlCountsScript", 1
+        )[0]
+        fixture = json.loads(
+            (ROOT / "fixtures/providers/claude-ios-collapsed-sidebar-hypothesis.json").read_text()
+        )
+        self.assertTrue(fixture["sanitized"])
+        self.assertFalse(fixture["containsPrivateContent"])
+        # r3 iPhone numeric probe: one visible exact open label, explicit aria-expanded=false, kind-1 click,
+        # account marker afterwards. Only that path is device-observed; integers only.
+        self.assertTrue(fixture["observedOnDevice"])
+        probe = fixture["deviceProbe"]["metrics"]
+        self.assertTrue(all(isinstance(value, int) for value in probe.values()))
+        self.assertEqual(
+            {key: probe[key] for key in ("sidebar_click_kind", "sidebar_expanded", "sidebar_open_label_count",
+                                         "sidebar_candidate_count", "auth_marker_present", "sidebar_close_label_count",
+                                         "sidebar_pin_count", "sidebar_testid_count", "sidebar_controls_count")},
+            {"sidebar_click_kind": 1, "sidebar_expanded": 1, "sidebar_open_label_count": 1, "sidebar_candidate_count": 1,
+             "auth_marker_present": 1, "sidebar_close_label_count": 0, "sidebar_pin_count": 0,
+             "sidebar_testid_count": 0, "sidebar_controls_count": 0},
+        )
+        for key in ("sidebarTriggerAcceptedLabels", "sidebarToggleLabels", "sidebarToggleTestIds", "sidebarCloseLabels"):
+            for marker in fixture[key]:
+                self.assertIn(f'"{marker}"', markers)
+        self.assertIn("if (closeVisible || visible.length !== 1) return JSON.stringify({ clicked: false });", claude)
+        self.assertIn("if (expanded === 'true') return JSON.stringify({ clicked: false });", claude)
+        self.assertIn("if (c.pin) continue;", claude)
+        self.assertIn("if (expanded === 'false') {\n              kind = 1;", claude)
+        self.assertIn("(c.open || c.toggle || c.testid) && allowStatelessToggle && document.readyState === 'complete'", claude)
+        classifier = markers.split("private static func claudeSidebarClassifierJS", 1)[1].split('"""')[1]
+        self.assertIn("[aria-hidden='true'], [inert]", classifier)
+        for generic in ("menu", "hamburger", "contenteditable", "ProseMirror", "indexOf('sidebar')", "includes("):
+            self.assertNotIn(generic, claude.split('"""')[1])
+            self.assertNotIn(generic, classifier)
+        for generic in ("'menu'", "'메뉴'", "hamburger"):
+            for key in ("sidebarTriggerAcceptedLabels", "sidebarToggleLabels", "sidebarToggleTestIds"):
+                self.assertNotIn(generic.strip("'"), fixture[key])
+        # Read-only count diagnostics: never click, integers only, login sheet only, separate store record.
+        counts = source.split("static func claudeSidebarControlCountsScript", 1)[1].split(
+            "static func openChatGPTSidebarScript", 1
+        )[0]
+        self.assertNotIn(".click()", counts)
+        self.assertIn("bridge.recordsControlDiagnostics = true", source.split("private func pollLoginStatus", 1)[1].split("\n    }\n", 1)[0])
+        self.assertEqual(source.count("recordsControlDiagnostics = true"), 1)
+        store = (ROOT / "profiles/imanager/distribution/ios/AIBIDiagnosticsStore.swift").read_text()
+        probe = store.split("func recordProbeSnapshot", 1)[1].split("\n    }\n", 1)[0]
+        self.assertNotIn("currentRunID", probe)
+        self.assertNotIn("runs[", probe)
+        self.assertIn("Self.allowedMetrics(metrics)", probe)
+        self.assertIn(
+            fixture["visibleAuthenticatedElementsAfterOpen"][0],
+            source.split("case .claude:\n            Selectors(", 1)[1].split("login: [", 1)[0],
+        )
+        self.assertEqual(
+            fixture["expected"],
+            {"authenticated": True, "hasLogin": False, "hasChallenge": False},
+        )
+
     def test_android_reference_routes_user_gesture_oauth_popups_through_allowlist(self):
         source = (ROOT / "packages/android/AIBIEngine.kt").read_text()
         self.assertIn("settings.setSupportMultipleWindows(true)", source)
@@ -126,6 +224,59 @@ class AuthenticationContractTests(unittest.TestCase):
         self.assertIn("putBoolean(explicitLogoutKey(DirectAIProvider.OPEN_AI), true)", auth_status)
         self.assertIn("putBoolean(explicitLogoutKey(DirectAIProvider.CLAUDE), true)", auth_status)
         self.assertIn("fun markLoginFlowStarted", auth_status)
+
+    def test_denimdex_ios_probe_requires_visible_account_marker_and_ends_unknown(self):
+        probe = (ROOT / "profiles/denimdex/distribution/apple/AIBILoginProbe.swift").read_text()
+        models = (ROOT / "profiles/denimdex/distribution/apple/AIBIModels.swift").read_text()
+        consumer = json.loads((ROOT / "consumers/denimdex.json").read_text())
+        fixture = json.loads(
+            (ROOT / "fixtures/providers/chatgpt-denimdex-ios-auth-probe.json").read_text()
+        )
+
+        # Composer readiness is never authentication evidence for this host.
+        self.assertNotIn(".checkReadiness(", probe)
+        self.assertNotIn("__AIBI_RUNTIME__", probe)
+        self.assertIn("var authenticatedIndicator: [String]?", models)
+        self.assertIn('"authenticated": config.selectors.authenticatedIndicator ?? []', probe)
+        state = probe.split("static let authStateFunction", 1)[1].split("static let revealSidebarFunction", 1)[0]
+        self.assertLess(state.index("visibleIn(selectors.challenge)"), state.index("visibleIn(selectors.login)"))
+        self.assertLess(state.index("visibleIn(selectors.login)"), state.index("visibleIn(selectors.authenticated)"))
+        self.assertLess(state.index("document.readyState === 'loading'"), state.index("visibleIn(selectors.authenticated)"))
+        self.assertIn("[aria-busy='true']", state)
+        self.assertNotIn("promptInput", state)
+        # Closed-sidebar reveal: exact Stargram selectors, unique visible enabled closed control only, bounded.
+        reveal = probe.split("static let revealSidebarFunction", 1)[1].split("private struct AIBILoginProbeWebView", 1)[0]
+        self.assertIn("if (visible.length !== 1) return false;", reveal)
+        self.assertIn("target.getAttribute('aria-disabled') === 'true'", reveal)
+        self.assertIn("target.getAttribute('aria-expanded') === 'true'", reveal)
+        self.assertIn("[aria-expanded='false']", reveal)
+        self.assertIn("private static let maxSidebarOpenAttempts = 6", probe)
+        self.assertIn("if sidebarOpenAttempts < Self.maxSidebarOpenAttempts, await revealSidebar(webView: webView)", probe)
+        # Bounded check ends explicitly unknown; the store never reports it as logged in.
+        self.assertIn("Date().addingTimeInterval(waitsForAuthentication ? 600 : 8)", probe)
+        self.assertIn("if !Task.isCancelled { finishInconclusive() }", probe)
+        self.assertIn("case .inconclusive: store.setStatus(.unknown)", probe)
+        self.assertIn("if result == .authenticated {", probe)
+        self.assertNotIn("logout", probe.lower())
+        # Registered so future sync keeps the host fix.
+        files = [item for repo in consumer["repositories"] for item in repo["files"]]
+        self.assertIn(
+            {"source": "profiles/denimdex/distribution/apple/AIBILoginProbe.swift",
+             "destination": "DenimDex/AIBI/AIBILoginProbe.swift", "scope": "host-adapted-auth-probe"},
+            files,
+        )
+
+        self.assertTrue(fixture["sanitized"])
+        self.assertFalse(fixture["containsPrivateContent"])
+        expected = {item["id"]: item["expected"] for item in fixture["states"]}
+        self.assertEqual(expected["account-marker-visible"]["state"], "authenticated")
+        self.assertEqual(expected["generic-composer-only"]["state"], "unknown")
+        self.assertEqual(expected["login-visible-with-marker"]["state"], "login")
+        self.assertEqual(expected["challenge-visible"]["state"], "challenge")
+        self.assertEqual(expected["collapsed-sidebar-unique-control"]["stateAfterClick"], "authenticated")
+        for ambiguous in ("collapsed-sidebar-ambiguous-controls", "collapsed-sidebar-disabled-control",
+                          "collapsed-sidebar-hidden-clone-only"):
+            self.assertEqual(expected[ambiguous], {"state": "unknown", "sidebarClick": False})
 
 
 if __name__ == "__main__":

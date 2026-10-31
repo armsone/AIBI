@@ -1,0 +1,223 @@
+{
+  "provider": "claude",
+  "state": "authenticated-collapsed-sidebar",
+  "sanitized": true,
+  "containsPrivateContent": false,
+  "synthetic": true,
+  "observedOnDevice": true,
+  "observedOnDeviceScope": "Only the explicit-collapsed exact open-label path (sidebar_click_kind 1). The exact matching label spelling/attribute is not exported. Stateless toggle (kind 2), test-id and aria-controls categories remain synthetic and unobserved.",
+  "deviceProbe": {
+    "source": "TM physical iPhone, Stargram 2.6.8 (202610311912), adapter aibi-stargram-0.5.5 r3, 2026-10-31 19:45-19:46 KST; Settings opened without opening any provider, then the Claude login row; page not touched",
+    "stage": "auth_probe_controls",
+    "elapsedMilliseconds": 1557,
+    "metrics": {
+      "attempt": 1,
+      "auth_marker_present": 1,
+      "document_complete": 1,
+      "menu_label_count": 0,
+      "sidebar_candidate_count": 1,
+      "sidebar_click_kind": 1,
+      "sidebar_close_label_count": 0,
+      "sidebar_controls_count": 0,
+      "sidebar_expanded": 1,
+      "sidebar_hidden_count": 1,
+      "sidebar_named_count": 1,
+      "sidebar_open_label_count": 1,
+      "sidebar_pin_count": 0,
+      "sidebar_testid_count": 0,
+      "sidebar_toggle_label_count": 0
+    },
+    "outcome": "Settings auto-probe showed all three providers logged in; the Claude login sheet dismissed itself with no manual sidebar tap. Integers only; no label text, DOM, URL or account data recorded."
+  },
+  "note": "Device-confirmed (iPhone r3 numeric probe) for one visible exact open-sidebar label with explicit aria-expanded=false, one hidden copy, no close/pin/test-id/aria-controls control, and a Claude account marker after the click. The remaining label/test-id/toggle categories are still synthetic. If no control matches, nothing is clicked and the probe stays unknown.",
+  "physicalEvidence": [
+    "iPhone, Stargram 2.6.8 (202610311912), Claude login sheet over an existing session: a top-left collapsed-sidebar control was visible and the app stayed unknown.",
+    "A single manual tap on that control opened the sidebar; the sheet then dismissed itself and Settings showed logged-in, so a Claude account marker becomes visible inside the opened sidebar.",
+    "The previous exact aria-label hypotheses 'Open sidebar' / '사이드바 열기' did not trigger a click on that build.",
+    "r3 numeric probe (deviceProbe above): the exact open-label kind-1 path clicked once at 1557 ms and the account marker became visible; Settings and the login sheet recognised Claude automatically."
+  ],
+  "portedTo": [
+    "Stargram Android ExternalAIAuthStatus.kt (Settings probe and login sheet): exact open label + explicit aria-expanded=false only (kind 1); no stateless toggle. Source/trace coverage only; no Android device run."
+  ],
+  "sidebarTriggerAcceptedLabels": [
+    "open sidebar",
+    "show sidebar",
+    "expand sidebar",
+    "사이드바 열기",
+    "사이드바 보기",
+    "사이드바 표시",
+    "사이드바 펼치기"
+  ],
+  "sidebarToggleLabels": [
+    "toggle sidebar",
+    "sidebar",
+    "사이드바 토글",
+    "사이드바",
+    "사이드바 표시/숨기기",
+    "사이드바 열기/닫기"
+  ],
+  "sidebarToggleTestIds": [
+    "sidebar-toggle",
+    "mobile-sidebar-toggle",
+    "toggle-sidebar",
+    "open-sidebar-button",
+    "sidebar-toggle-button",
+    "sidebar-open-button"
+  ],
+  "sidebarCloseLabels": [
+    "close sidebar",
+    "hide sidebar",
+    "collapse sidebar",
+    "사이드바 닫기",
+    "사이드바 숨기기",
+    "사이드바 접기"
+  ],
+  "matchRule": "aria-label or title exact after whitespace/lowercase normalization, data-testid exact, or aria-controls with a 'sidebar' token (that last kind only with aria-expanded='false')",
+  "clickPolicy": {
+    "precondition": "no visible auth, login or challenge marker",
+    "explicitCollapsedState": "aria-expanded='false': retried within the per-page bound of 6",
+    "statelessToggle": "no aria-expanded: at most once per page, only from the second ambiguous probe and after document.readyState complete"
+  },
+  "sidebarTriggerRejected": [
+    "hidden or aria-hidden/inert clone",
+    "more than one visible candidate",
+    "any visible close-sidebar control",
+    "aria-expanded='true'",
+    "disabled or aria-disabled",
+    "pin/unpin sidebar control (persisted preference)",
+    "generic menu or hamburger name",
+    "aria-controls sidebar match without aria-expanded='false'"
+  ],
+  "cases": [
+    {
+      "controls": [
+        {
+          "tag": "button",
+          "aria-label": "Toggle sidebar",
+          "visible": true
+        }
+      ],
+      "ambiguousProbe": 2,
+      "documentComplete": true,
+      "expectedClickKind": 2
+    },
+    {
+      "controls": [
+        {
+          "tag": "button",
+          "aria-label": "Toggle sidebar",
+          "visible": true
+        }
+      ],
+      "ambiguousProbe": 3,
+      "statelessToggleAlreadyUsed": true,
+      "expectedClickKind": 0
+    },
+    {
+      "controls": [
+        {
+          "tag": "button",
+          "data-testid": "sidebar-toggle",
+          "aria-expanded": "false",
+          "visible": true
+        }
+      ],
+      "ambiguousProbe": 1,
+      "expectedClickKind": 1
+    },
+    {
+      "controls": [
+        {
+          "tag": "button",
+          "aria-controls": "mobile-sidebar",
+          "visible": true
+        }
+      ],
+      "ambiguousProbe": 2,
+      "documentComplete": true,
+      "expectedClickKind": 0
+    },
+    {
+      "controls": [
+        {
+          "tag": "button",
+          "aria-label": "Sidebar",
+          "visible": true
+        },
+        {
+          "tag": "button",
+          "aria-label": "Sidebar",
+          "visible": false
+        }
+      ],
+      "ambiguousProbe": 2,
+      "documentComplete": true,
+      "expectedClickKind": 2
+    },
+    {
+      "controls": [
+        {
+          "tag": "button",
+          "aria-label": "Sidebar",
+          "visible": true
+        },
+        {
+          "tag": "button",
+          "aria-label": "Open sidebar",
+          "visible": true
+        }
+      ],
+      "ambiguousProbe": 2,
+      "documentComplete": true,
+      "expectedClickKind": 0
+    },
+    {
+      "controls": [
+        {
+          "tag": "button",
+          "aria-label": "Menu",
+          "visible": true
+        }
+      ],
+      "ambiguousProbe": 2,
+      "documentComplete": true,
+      "expectedClickKind": 0
+    },
+    {
+      "controls": [
+        {
+          "tag": "button",
+          "data-testid": "pin-sidebar-toggle",
+          "visible": true
+        }
+      ],
+      "ambiguousProbe": 2,
+      "documentComplete": true,
+      "expectedClickKind": 0
+    },
+    {
+      "controls": [
+        {
+          "tag": "button",
+          "aria-label": "Open sidebar",
+          "aria-expanded": "true",
+          "visible": true
+        }
+      ],
+      "ambiguousProbe": 2,
+      "documentComplete": true,
+      "expectedClickKind": 0
+    }
+  ],
+  "visibleAuthenticatedElementsBeforeOpen": [],
+  "visibleAuthenticatedElementsAfterOpen": [
+    "button[data-testid='user-menu-button']"
+  ],
+  "visibleLoginElements": [],
+  "diagnostics": "Login sheet only, once per page: auth_probe_controls integer counts (see AIBIDiagnosticsStore codeDescriptions); no strings.",
+  "expected": {
+    "authenticated": true,
+    "hasLogin": false,
+    "hasChallenge": false
+  }
+}

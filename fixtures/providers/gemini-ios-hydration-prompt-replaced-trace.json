@@ -1,0 +1,115 @@
+{
+  "provider": "gemini",
+  "host": "stargram-ios-2.6.8-202610311912-visible-sheet",
+  "adapterVersionAtCapture": "aibi-stargram-0.5.5",
+  "capturedAt": "2026-10-31T19:18:00+09:00",
+  "sanitized": true,
+  "containsPrivateContent": false,
+  "note": "Stage, elapsed-millisecond and integer metric values only, copied from the iPhone diagnostics export (text-only, zero attachments). No prompt, answer, URL, DOM, account or media content.",
+  "events": [
+    {
+      "stage": "run_started",
+      "ms": 0,
+      "metrics": {}
+    },
+    {
+      "stage": "media_preparation_started",
+      "ms": 8,
+      "metrics": {
+        "expected_count": 0
+      }
+    },
+    {
+      "stage": "navigation_started",
+      "ms": 131,
+      "metrics": {}
+    },
+    {
+      "stage": "navigation_committed",
+      "ms": 342,
+      "metrics": {}
+    },
+    {
+      "stage": "bridge_ready",
+      "ms": 650,
+      "metrics": {}
+    },
+    {
+      "stage": "prompt_inserted",
+      "ms": 1182,
+      "metrics": {
+        "prompt_length": 479
+      }
+    },
+    {
+      "stage": "bridge_snapshot",
+      "ms": 1262,
+      "metrics": {
+        "composer_present": 1,
+        "prompt_length": 479,
+        "prompt_present": 1,
+        "send_present": 0,
+        "send_enabled": 0,
+        "generation_active": 0,
+        "input_count": 0,
+        "preview_count": 0
+      }
+    },
+    {
+      "stage": "browser_loaded",
+      "ms": 1919,
+      "metrics": {}
+    },
+    {
+      "stage": "bridge_snapshot",
+      "ms": 1964,
+      "metrics": {
+        "composer_present": 1,
+        "prompt_length": 444,
+        "prompt_present": 0,
+        "send_present": 1,
+        "send_enabled": 1,
+        "generation_active": 0,
+        "input_count": 0,
+        "preview_count": 0
+      }
+    },
+    {
+      "stage": "send_timeout",
+      "ms": 16205,
+      "metrics": {}
+    },
+    {
+      "stage": "bridge_failed",
+      "ms": 16974,
+      "metrics": {}
+    },
+    {
+      "stage": "run_failed",
+      "ms": 45354,
+      "metrics": {}
+    }
+  ],
+  "absentStages": [
+    "send_attempted",
+    "send_observed",
+    "prompt_failed",
+    "browser_load_failed",
+    "generation_started"
+  ],
+  "sourceFacts": [
+    "Same document throughout: no navigation event after the 342 ms commit, so the observer helpers installed for that document were not removed.",
+    "The first fill succeeded before hydration; by 1964 ms the hydrated composer held different normalized text (prompt_present 0, textContent 444) with an enabled send button.",
+    "__starManagerSendPrompt requires normalized composer text to equal the inserted prompt, so the sheet's 15 s submit loop could never pass; send_timeout = 1182 + ~15000.",
+    "The next fill ran after the 700 ms sleep (16205 + ~770 = 16974) and returned a non-boolean or threw (bridge_failed; prompt_failed would mean the helper returned false). Pre-fix iOS __starManagerFillPrompt left document.execCommand('insertHTML') without try/catch, unlike the canonical runtime and Android."
+  ],
+  "undeterminedByThisTrace": [
+    "Exception vs helper-missing for bridge_failed: pre-fix builds logged no failure_kind (0.5.5 rebuild adds 2 TypeError / 3 other / 4 helper missing).",
+    "Exactly how hydration transformed the first content (479 -> 444 textContent): newline loss is consistent but the prompt text is not recorded."
+  ],
+  "expected": "prompt-replaced-before-any-send-is-refilled-in-quill-paragraph-form-and-sent-once-after-normalized-full-match",
+  "hypothesesNotPhysicallyConfirmed": [
+    "The exact exception behind bridge_failed is unknown; a throwing HTML sink (for example a Trusted Types TypeError) is one candidate.",
+    "Quill removing a <br> that has siblings inside a block is a candidate explanation for the 479 -> 444 textContent change; the trace proves only the normalized mismatch (prompt_present 0)."
+  ]
+}

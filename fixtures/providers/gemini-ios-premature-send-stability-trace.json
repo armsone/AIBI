@@ -1,0 +1,751 @@
+{
+  "provider": "gemini",
+  "host": "stargram-ios-2.6.8-202610311912-r2",
+  "capturedAt": "2026-10-31T19:30:00+09:00",
+  "sanitized": true,
+  "containsPrivateContent": false,
+  "note": "Stage, elapsed-millisecond and integer metric values only, copied from the iPhone diagnostics export of r2. Image run used one synthetic 512px flat-blue PNG. No prompt, answer, URL, DOM, account or media content.",
+  "runs": [
+    {
+      "name": "text_run1_premature",
+      "appVersion": "2.6.8",
+      "appBuild": "202610311912",
+      "adapterVersion": "aibi-stargram-0.5.5",
+      "observedOutcome": "visible_provider_spinner_until_native_timeout_no_answer",
+      "events": [
+        {
+          "stage": "run_started",
+          "ms": 0,
+          "metrics": {}
+        },
+        {
+          "stage": "media_preparation_started",
+          "ms": 4,
+          "metrics": {
+            "expected_count": 0
+          }
+        },
+        {
+          "stage": "navigation_started",
+          "ms": 164,
+          "metrics": {}
+        },
+        {
+          "stage": "navigation_committed",
+          "ms": 515,
+          "metrics": {}
+        },
+        {
+          "stage": "bridge_ready",
+          "ms": 845,
+          "metrics": {}
+        },
+        {
+          "stage": "prompt_inserted",
+          "ms": 1294,
+          "metrics": {
+            "attempt": 1,
+            "prompt_length": 479
+          }
+        },
+        {
+          "stage": "bridge_snapshot",
+          "ms": 1303,
+          "metrics": {
+            "assistant_message_present": 0,
+            "composer_present": 1,
+            "generation_active": 0,
+            "input_count": 0,
+            "preview_count": 0,
+            "prompt_length": 462,
+            "prompt_present": 1,
+            "send_enabled": 1,
+            "send_present": 1,
+            "stop_present": 0,
+            "uploading_count": 0,
+            "user_message_present": 0
+          }
+        },
+        {
+          "stage": "send_attempted",
+          "ms": 1390,
+          "metrics": {
+            "attempt": 1
+          }
+        },
+        {
+          "stage": "browser_loaded",
+          "ms": 1982,
+          "metrics": {}
+        },
+        {
+          "stage": "bridge_snapshot",
+          "ms": 1996,
+          "metrics": {
+            "assistant_message_present": 1,
+            "composer_present": 1,
+            "generation_active": 1,
+            "input_count": 0,
+            "preview_count": 0,
+            "prompt_length": 0,
+            "prompt_present": 0,
+            "send_enabled": 0,
+            "send_present": 0,
+            "stop_present": 1,
+            "uploading_count": 0,
+            "user_message_present": 0
+          }
+        },
+        {
+          "stage": "generation_started",
+          "ms": 1998,
+          "metrics": {}
+        },
+        {
+          "stage": "send_observed",
+          "ms": 2132,
+          "metrics": {}
+        },
+        {
+          "stage": "run_failed",
+          "ms": 121496,
+          "metrics": {}
+        }
+      ]
+    },
+    {
+      "name": "image_run1_premature",
+      "appVersion": "2.6.8",
+      "appBuild": "202610311912",
+      "adapterVersion": "aibi-stargram-0.5.5",
+      "observedOutcome": "visible_provider_spinner_until_native_timeout_no_answer",
+      "events": [
+        {
+          "stage": "run_started",
+          "ms": 0,
+          "metrics": {}
+        },
+        {
+          "stage": "media_preparation_started",
+          "ms": 11,
+          "metrics": {
+            "expected_count": 1
+          }
+        },
+        {
+          "stage": "media_prepared",
+          "ms": 70,
+          "metrics": {
+            "prepared_count": 1,
+            "total_bytes": 5181
+          }
+        },
+        {
+          "stage": "navigation_started",
+          "ms": 172,
+          "metrics": {}
+        },
+        {
+          "stage": "navigation_committed",
+          "ms": 409,
+          "metrics": {}
+        },
+        {
+          "stage": "bridge_ready",
+          "ms": 730,
+          "metrics": {}
+        },
+        {
+          "stage": "composer_reset",
+          "ms": 1166,
+          "metrics": {
+            "composer_ready": 0,
+            "reset_clicks": 0,
+            "reset_tiles": 0,
+            "root_present": 0
+          }
+        },
+        {
+          "stage": "bridge_snapshot",
+          "ms": 1303,
+          "metrics": {
+            "assistant_message_present": 0,
+            "composer_present": 0,
+            "generation_active": 0,
+            "input_count": 0,
+            "preview_count": 0,
+            "prompt_length": 0,
+            "prompt_present": 0,
+            "send_enabled": 0,
+            "send_present": 0,
+            "stop_present": 0,
+            "uploading_count": 0,
+            "user_message_present": 0
+          }
+        },
+        {
+          "stage": "composer_reset",
+          "ms": 1477,
+          "metrics": {
+            "composer_ready": 1,
+            "reset_clicks": 0,
+            "reset_error": 0,
+            "reset_tiles": 0,
+            "root_present": 1
+          }
+        },
+        {
+          "stage": "attachment_started",
+          "ms": 1662,
+          "metrics": {
+            "expected_count": 1
+          }
+        },
+        {
+          "stage": "bridge_snapshot",
+          "ms": 2025,
+          "metrics": {
+            "assistant_message_present": 0,
+            "composer_present": 0,
+            "generation_active": 0,
+            "input_count": 4,
+            "preview_count": 0,
+            "prompt_length": 0,
+            "prompt_present": 0,
+            "send_enabled": 0,
+            "send_present": 0,
+            "stop_present": 0,
+            "uploading_count": 0,
+            "user_message_present": 0
+          }
+        },
+        {
+          "stage": "browser_loaded",
+          "ms": 2111,
+          "metrics": {}
+        },
+        {
+          "stage": "attachment_dispatched",
+          "ms": 2452,
+          "metrics": {
+            "attached_count": 1
+          }
+        },
+        {
+          "stage": "bridge_snapshot",
+          "ms": 2725,
+          "metrics": {
+            "assistant_message_present": 0,
+            "composer_present": 1,
+            "generation_active": 0,
+            "input_count": 0,
+            "preview_count": 1,
+            "prompt_length": 0,
+            "prompt_present": 0,
+            "send_enabled": 1,
+            "send_present": 1,
+            "stop_present": 0,
+            "uploading_count": 0,
+            "user_message_present": 0
+          }
+        },
+        {
+          "stage": "attachment_ready",
+          "ms": 3193,
+          "metrics": {
+            "attached_count": 1
+          }
+        },
+        {
+          "stage": "prompt_inserted",
+          "ms": 3337,
+          "metrics": {
+            "attempt": 1,
+            "prompt_length": 496
+          }
+        },
+        {
+          "stage": "send_attempted",
+          "ms": 3363,
+          "metrics": {
+            "attempt": 1
+          }
+        },
+        {
+          "stage": "bridge_snapshot",
+          "ms": 3426,
+          "metrics": {
+            "assistant_message_present": 0,
+            "composer_present": 1,
+            "generation_active": 0,
+            "input_count": 0,
+            "preview_count": 1,
+            "prompt_length": 4,
+            "prompt_present": 0,
+            "send_enabled": 1,
+            "send_present": 1,
+            "stop_present": 0,
+            "uploading_count": 0,
+            "user_message_present": 0
+          }
+        },
+        {
+          "stage": "bridge_snapshot",
+          "ms": 4828,
+          "metrics": {
+            "assistant_message_present": 1,
+            "composer_present": 1,
+            "generation_active": 1,
+            "input_count": 0,
+            "preview_count": 0,
+            "prompt_length": 0,
+            "prompt_present": 0,
+            "send_enabled": 0,
+            "send_present": 0,
+            "stop_present": 1,
+            "uploading_count": 0,
+            "user_message_present": 0
+          }
+        },
+        {
+          "stage": "generation_started",
+          "ms": 4833,
+          "metrics": {}
+        },
+        {
+          "stage": "send_observed",
+          "ms": 5314,
+          "metrics": {}
+        },
+        {
+          "stage": "generation_failed",
+          "ms": 124231,
+          "metrics": {}
+        },
+        {
+          "stage": "run_failed",
+          "ms": 124242,
+          "metrics": {}
+        },
+        {
+          "stage": "run_failed",
+          "ms": 124251,
+          "metrics": {}
+        }
+      ]
+    },
+    {
+      "name": "text_run2_completed",
+      "appVersion": "2.6.8",
+      "appBuild": "202610311912",
+      "adapterVersion": "aibi-stargram-0.5.5",
+      "observedOutcome": "native_result_applied_without_manual_import",
+      "events": [
+        {
+          "stage": "run_started",
+          "ms": 0,
+          "metrics": {}
+        },
+        {
+          "stage": "media_preparation_started",
+          "ms": 12,
+          "metrics": {
+            "expected_count": 0
+          }
+        },
+        {
+          "stage": "navigation_started",
+          "ms": 146,
+          "metrics": {}
+        },
+        {
+          "stage": "navigation_committed",
+          "ms": 415,
+          "metrics": {}
+        },
+        {
+          "stage": "bridge_ready",
+          "ms": 775,
+          "metrics": {}
+        },
+        {
+          "stage": "prompt_inserted",
+          "ms": 1177,
+          "metrics": {
+            "attempt": 1,
+            "prompt_length": 479
+          }
+        },
+        {
+          "stage": "bridge_snapshot",
+          "ms": 1195,
+          "metrics": {
+            "assistant_message_present": 0,
+            "composer_present": 1,
+            "generation_active": 0,
+            "input_count": 0,
+            "preview_count": 0,
+            "prompt_length": 462,
+            "prompt_present": 1,
+            "send_enabled": 0,
+            "send_present": 0,
+            "stop_present": 0,
+            "uploading_count": 0,
+            "user_message_present": 0
+          }
+        },
+        {
+          "stage": "browser_loaded",
+          "ms": 1485,
+          "metrics": {}
+        },
+        {
+          "stage": "send_attempted",
+          "ms": 1821,
+          "metrics": {
+            "attempt": 1
+          }
+        },
+        {
+          "stage": "bridge_snapshot",
+          "ms": 1909,
+          "metrics": {
+            "assistant_message_present": 1,
+            "composer_present": 1,
+            "generation_active": 1,
+            "input_count": 0,
+            "preview_count": 0,
+            "prompt_length": 0,
+            "prompt_present": 0,
+            "send_enabled": 0,
+            "send_present": 0,
+            "stop_present": 1,
+            "uploading_count": 0,
+            "user_message_present": 0
+          }
+        },
+        {
+          "stage": "generation_started",
+          "ms": 1912,
+          "metrics": {}
+        },
+        {
+          "stage": "send_observed",
+          "ms": 2525,
+          "metrics": {}
+        },
+        {
+          "stage": "bridge_snapshot",
+          "ms": 6821,
+          "metrics": {
+            "assistant_message_present": 1,
+            "composer_present": 0,
+            "generation_active": 0,
+            "input_count": 0,
+            "preview_count": 0,
+            "prompt_length": 0,
+            "prompt_present": 0,
+            "send_enabled": 0,
+            "send_present": 0,
+            "stop_present": 0,
+            "uploading_count": 0,
+            "user_message_present": 0
+          }
+        },
+        {
+          "stage": "generation_completed",
+          "ms": 8230,
+          "metrics": {
+            "response_length": 167
+          }
+        },
+        {
+          "stage": "result_applied",
+          "ms": 8239,
+          "metrics": {
+            "response_length": 167
+          }
+        },
+        {
+          "stage": "run_completed",
+          "ms": 8243,
+          "metrics": {}
+        }
+      ]
+    }
+  ],
+  "observedFacts": [
+    "Both failing runs clicked once (send_attempted attempt 1) 96 ms and 26 ms after prompt_inserted, then the provider page visibly stayed generating until the native 119 s timeout with no answer present.",
+    "The text failure clicked before browser_loaded; the image failure clicked after browser_loaded, so document load alone does not separate the runs.",
+    "The completed run clicked 644 ms after prompt_inserted; its first snapshot after the fill had no send button yet."
+  ],
+  "inferenceNotPhysicallyConfirmed": "The rich editor framework may not have committed the inserted text to its model when the DOM text already matched. Not established causation.",
+  "gateUnderTest": {
+    "stableSamples": 3,
+    "stableMs": 900,
+    "pollIntervalMs": 500,
+    "submitWindowMs": 15000
+  },
+  "deviceAcceptance": {
+    "source": "TM physical iPhone, Stargram 2.6.8 (202610311912), aibi-stargram-0.5.5 r4, visible browser mode, no manual provider interaction, 2026-10-31 19:56-20:00 KST. Sanitized stage/ms/integer metrics only; snapshots reduced to three keys.",
+    "scope": "Proves the r4 Gemini gate on this iPhone only (text and one synthetic flat-blue image). Hidden mode, other platforms and other hosts are not proven by this trace.",
+    "runs": [
+      {
+        "name": "r4_text_slow_hydration_pass",
+        "observedOutcome": "native_result_applied_visually_confirmed",
+        "note": "The page rewrote the inserted text before load completed (prompt_present 0). No click happened; after the 15 s send wait one bounded automatic refill (attempt 2) restored it, and exactly one click followed after browser_loaded with 3 stable samples. Two fills before the single send are bounded pre-send recovery, not duplicate submission.",
+        "events": [
+          {
+            "stage": "run_started",
+            "ms": 0,
+            "metrics": {}
+          },
+          {
+            "stage": "media_preparation_started",
+            "ms": 4,
+            "metrics": {
+              "expected_count": 0
+            }
+          },
+          {
+            "stage": "navigation_started",
+            "ms": 171,
+            "metrics": {}
+          },
+          {
+            "stage": "navigation_committed",
+            "ms": 402,
+            "metrics": {}
+          },
+          {
+            "stage": "bridge_ready",
+            "ms": 719,
+            "metrics": {}
+          },
+          {
+            "stage": "prompt_inserted",
+            "ms": 1112,
+            "metrics": {
+              "attempt": 1,
+              "prompt_length": 458
+            }
+          },
+          {
+            "stage": "bridge_snapshot",
+            "ms": 1175,
+            "metrics": {
+              "composer_present": 1,
+              "prompt_present": 1,
+              "send_enabled": 0
+            }
+          },
+          {
+            "stage": "bridge_snapshot",
+            "ms": 8976,
+            "metrics": {
+              "composer_present": 1,
+              "prompt_present": 0,
+              "send_enabled": 0
+            }
+          },
+          {
+            "stage": "bridge_snapshot",
+            "ms": 9687,
+            "metrics": {
+              "composer_present": 1,
+              "prompt_present": 0,
+              "send_enabled": 1
+            }
+          },
+          {
+            "stage": "send_timeout",
+            "ms": 16134,
+            "metrics": {}
+          },
+          {
+            "stage": "prompt_inserted",
+            "ms": 16947,
+            "metrics": {
+              "attempt": 2,
+              "prompt_length": 458
+            }
+          },
+          {
+            "stage": "bridge_snapshot",
+            "ms": 17431,
+            "metrics": {
+              "composer_present": 1,
+              "prompt_present": 1,
+              "send_enabled": 1
+            }
+          },
+          {
+            "stage": "browser_loaded",
+            "ms": 20832,
+            "metrics": {}
+          },
+          {
+            "stage": "send_attempted",
+            "ms": 22237,
+            "metrics": {
+              "attempt": 1,
+              "stable_samples": 3
+            }
+          },
+          {
+            "stage": "generation_started",
+            "ms": 22355,
+            "metrics": {}
+          },
+          {
+            "stage": "send_observed",
+            "ms": 22969,
+            "metrics": {}
+          },
+          {
+            "stage": "generation_completed",
+            "ms": 28003,
+            "metrics": {
+              "response_length": 193
+            }
+          },
+          {
+            "stage": "result_applied",
+            "ms": 28022,
+            "metrics": {
+              "response_length": 193
+            }
+          },
+          {
+            "stage": "run_completed",
+            "ms": 28028,
+            "metrics": {}
+          }
+        ]
+      },
+      {
+        "name": "r4_image_pass",
+        "observedOutcome": "native_result_applied_visually_confirmed_color_matched",
+        "events": [
+          {
+            "stage": "run_started",
+            "ms": 0,
+            "metrics": {}
+          },
+          {
+            "stage": "media_preparation_started",
+            "ms": 11,
+            "metrics": {
+              "expected_count": 1
+            }
+          },
+          {
+            "stage": "media_prepared",
+            "ms": 72,
+            "metrics": {
+              "prepared_count": 1,
+              "total_bytes": 5181
+            }
+          },
+          {
+            "stage": "navigation_started",
+            "ms": 172,
+            "metrics": {}
+          },
+          {
+            "stage": "navigation_committed",
+            "ms": 327,
+            "metrics": {}
+          },
+          {
+            "stage": "bridge_ready",
+            "ms": 649,
+            "metrics": {}
+          },
+          {
+            "stage": "composer_reset",
+            "ms": 1060,
+            "metrics": {
+              "composer_ready": 1,
+              "reset_clicks": 0,
+              "reset_error": 0,
+              "reset_tiles": 0,
+              "root_present": 1
+            }
+          },
+          {
+            "stage": "attachment_started",
+            "ms": 1249,
+            "metrics": {
+              "expected_count": 1
+            }
+          },
+          {
+            "stage": "browser_loaded",
+            "ms": 1524,
+            "metrics": {}
+          },
+          {
+            "stage": "attachment_dispatched",
+            "ms": 2007,
+            "metrics": {
+              "attached_count": 1
+            }
+          },
+          {
+            "stage": "attachment_ready",
+            "ms": 2733,
+            "metrics": {
+              "attached_count": 1
+            }
+          },
+          {
+            "stage": "prompt_inserted",
+            "ms": 2863,
+            "metrics": {
+              "attempt": 1,
+              "prompt_length": 496
+            }
+          },
+          {
+            "stage": "send_attempted",
+            "ms": 3941,
+            "metrics": {
+              "attempt": 1,
+              "stable_samples": 3
+            }
+          },
+          {
+            "stage": "generation_started",
+            "ms": 4068,
+            "metrics": {}
+          },
+          {
+            "stage": "send_observed",
+            "ms": 4688,
+            "metrics": {}
+          },
+          {
+            "stage": "generation_completed",
+            "ms": 11105,
+            "metrics": {
+              "response_length": 144
+            }
+          },
+          {
+            "stage": "result_applied",
+            "ms": 11126,
+            "metrics": {
+              "response_length": 144
+            }
+          },
+          {
+            "stage": "run_completed",
+            "ms": 11133,
+            "metrics": {}
+          }
+        ]
+      }
+    ]
+  }
+}

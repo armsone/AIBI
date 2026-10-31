@@ -12,7 +12,8 @@
         {"source": "packages/providers/aibi-providers.json", "destination": "DenimDex/AIBI/Resources/aibi-providers.json", "scope": "provider-configuration"},
         {"source": "profiles/denimdex/distribution/apple/AIBISession.swift", "destination": "DenimDex/AIBI/AIBISession.swift", "scope": "host-adapted-runtime"},
         {"source": "profiles/denimdex/distribution/apple/AIBIModels.swift", "destination": "DenimDex/AIBI/AIBIModels.swift", "scope": "host-adapted-models"},
-        {"source": "profiles/denimdex/distribution/apple/AIBIDiagnosticsStore.swift", "destination": "DenimDex/AIBI/AIBIDiagnosticsStore.swift", "scope": "privacy-safe-diagnostics"}
+        {"source": "profiles/denimdex/distribution/apple/AIBIDiagnosticsStore.swift", "destination": "DenimDex/AIBI/AIBIDiagnosticsStore.swift", "scope": "privacy-safe-diagnostics"},
+        {"source": "profiles/denimdex/distribution/apple/AIBILoginProbe.swift", "destination": "DenimDex/AIBI/AIBILoginProbe.swift", "scope": "host-adapted-auth-probe"}
       ]
     },
     {

@@ -187,6 +187,250 @@ class MediaContractTests(unittest.TestCase):
         self.assertIn("maximumImageCount: Int = 8", pipeline)
         self.assertIn("aibi-%02d.jpg", pipeline)
 
+    def test_imanager_ios_superseded_navigation_never_marks_page_ready(self):
+        runtime = (ROOT / "profiles/imanager/distribution/ios/ExternalAIBrowserView.swift").read_text()
+        store = (ROOT / "profiles/imanager/distribution/ios/AIBIDiagnosticsStore.swift").read_text()
+        failure = runtime.split("private func handleNavigationFailure", 1)[1].split(
+            "func webViewWebContentProcessDidTerminate", 1
+        )[0]
+        self.assertIn("latestNavigation = navigation", runtime)
+        self.assertLess(failure.index("guard !isSuperseded(navigation)"), failure.index("markNavigationFinished(loaded: false)"))
+        self.assertIn('"failure_kind": cancelled ? 1 : 3', failure)
+        self.assertIn("if loaded { log(\"browser_loaded\") }", runtime)
+        self.assertIn("prompt_present: promptMatchesLastFilled(editor) ? 1 : 0", runtime)
+        self.assertIn('logFillFailure("prompt_failed")', runtime)
+        self.assertIn('logFillFailure("bridge_failed", failureKind: 4)', runtime)
+        self.assertIn('logFillFailure("bridge_failed", failureKind: Self.evaluationFailureKind(error))', runtime)
+        self.assertIn('"failure_kind": 1...4', store)
+        for stage in ("navigation_started", "navigation_committed", "bridge_ready", "prompt_failed", "bridge_failed"):
+            self.assertIn(f'"{stage}"', store)
+        # Exactly-once send protection is unchanged.
+        self.assertIn("if (window.__starManagerSubmitDispatched) return true;", runtime)
+        self.assertIn("guard !Task.isCancelled, let webView, !hasAttemptedSubmission,\n              !automatic || !isAutomaticFillBudgetExhausted else { return false }", runtime)
+        # Same-document didFinish/failure must not restart the fill task; only a new commit or
+        # renderer termination advances the generation.
+        finished = runtime.split("fileprivate func markNavigationFinished(loaded: Bool = true)", 1)[1].split(
+            "fileprivate func markRendererTerminated", 1
+        )[0]
+        self.assertNotIn("navigationGeneration += 1", finished)
+        self.assertEqual(runtime.count("navigationGeneration += 1"), 2)
+        commit = runtime.split("final class ExternalAIBrowserBridge", 1)[1].split(
+            "fileprivate func didCommitNavigation()", 1
+        )[1].split("let epoch = docEpoch", 1)[0]
+        self.assertIn("navigationGeneration += 1", commit)
+        self.assertIn("bridge.markRendererTerminated()", runtime)
+        # A restarted task after a send attempt only verifies; a cancelled task never reports failure.
+        self.assertEqual(runtime.count("if bridge.isPageReady, bridge.hasAttemptedSubmission {"), 2)
+        self.assertGreaterEqual(runtime.count("guard !Task.isCancelled else { return }\n                    if bridge.hasAttemptedSubmission"), 2)
+
+        trace = json.loads(
+            (ROOT / "fixtures/providers/gemini-ios-text-only-load-race-trace.json").read_text()
+        )
+        self.assertTrue(trace["sanitized"])
+        self.assertFalse(trace["containsPrivateContent"])
+        stages = [event["stage"] for event in trace["events"]]
+        self.assertLess(stages.index("prompt_inserted"), stages.index("browser_loaded"))
+        self.assertNotIn("send_attempted", stages)
+        for event in trace["events"]:
+            self.assertTrue(all(isinstance(value, int) for value in event["metrics"].values()))
+
+    def test_imanager_ios_gemini_hydration_replaced_prompt_refills_before_any_send(self):
+        runtime = (ROOT / "profiles/imanager/distribution/ios/ExternalAIBrowserView.swift").read_text()
+        fill = runtime.split("window.__starManagerFillPrompt = function(text, force) {", 1)[1].split(
+            "window.__starManagerSendPrompt = function()", 1
+        )[0]
+        send = runtime.split("window.__starManagerSendPrompt = function()", 1)[1].split(
+            "window.__starManagerDidSubmit", 1
+        )[0]
+        # Never fill after a click; the send gate (normalized full match) is unchanged.
+        first = [line.strip() for line in fill.splitlines() if line.strip() and not line.strip().startswith("//")][0]
+        self.assertEqual(first, "if (window.__starManagerSubmitDispatched || generationSeen()) return false;")
+        self.assertIn("if (!current || current !== normalize(window.__starManagerLastFilled || '')) return false;", send)
+        # Quill: native insertText, then Quill paragraph DOM, then a normalized full-match check.
+        quill = fill.split("el.classList.contains('ql-editor')) {", 1)[1].split("} else if (el.isContentEditable) {", 1)[0]
+        self.assertLess(quill.index("execCommand('insertText'"), quill.index("el.replaceChildren(...quillParagraphs(text))"))
+        self.assertIn("if (normalizedPromptText(el.innerText) !== normalizedPromptText(text)) return false;", quill)
+        self.assertNotIn("execCommand('insertHTML'", quill)
+        self.assertNotIn(".innerHTML", quill)
+        # A throwing HTML sink no longer escapes the helper (runtime/Android parity).
+        self.assertIn("try { inserted = document.execCommand('insertHTML', false, html); } catch (_) { inserted = false; }", fill)
+        # Replacement is acted on only before any send attempt, after load, and bounded.
+        state = runtime.split("window.__starManagerPromptState = function()", 1)[1].split("};", 1)[0]
+        self.assertLess(state.index("return 3;"), state.index("return promptMatchesLastFilled(editor) ? 1 : 2;"))
+        self.assertIn("document.readyState !== 'complete'", state)
+        replaced = runtime.split("func isPromptReplacedBeforeSend() async -> Bool {", 1)[1].split("\n    }\n", 1)[0]
+        self.assertIn("!hasAttemptedSubmission,\n              (1..<Self.maxPromptFillsBeforeSend).contains(promptFillCount)", replaced)
+        self.assertIn('log("send_blocked", ["prompt_present": 0, "attempt": promptFillCount])', replaced)
+        self.assertIn("static let maxPromptFillsBeforeSend = 3", runtime)
+        self.assertEqual(runtime.count("if await bridge.isPromptReplacedBeforeSend() { return false }"), 2)
+        for loop in runtime.split("private func submitPromptWhenReady() async -> Bool {")[1:]:
+            body = loop.split("\n    }\n", 1)[0]
+            self.assertLess(body.index("await bridge.submitPrompt()"), body.index("isPromptReplacedBeforeSend"))
+        # fillPrompt itself enforces the bound for automatic fills; only the user's manual refill bypasses it.
+        bridge_fill = runtime.split("func fillPrompt(_ prompt: String, force: Bool, automatic: Bool = true) async -> Bool {", 1)[1].split("\n    }\n", 1)[0]
+        self.assertTrue(bridge_fill.lstrip().startswith(
+            "guard !Task.isCancelled, let webView, !hasAttemptedSubmission,\n              !automatic || !isAutomaticFillBudgetExhausted else { return false }"
+        ))
+        self.assertIn("var isAutomaticFillBudgetExhausted: Bool { promptFillCount >= Self.maxPromptFillsBeforeSend }", runtime)
+        self.assertEqual(runtime.count("automatic: false"), 1)
+        self.assertIn("if await fillPrompt(force: true, automatic: false) {", runtime)
+        self.assertEqual(runtime.count("await fillPrompt(force: true) {"), 1)
+        self.assertEqual(runtime.count("await bridge.fillPrompt(prompt, force: true)"), 1)
+        hidden = runtime.split("let filled = await bridge.fillPrompt(prompt, force: true)", 1)[1].split("try? await Task.sleep", 1)[0]
+        self.assertLess(hidden.index("bridge.isAutomaticFillBudgetExhausted"), hidden.index("checkCount >= 12"))
+        self.assertIn("onFallback(.timeout)", hidden.split("checkCount >= 12", 1)[0])
+
+        trace = json.loads(
+            (ROOT / "fixtures/providers/gemini-ios-hydration-prompt-replaced-trace.json").read_text()
+        )
+        self.assertTrue(trace["sanitized"])
+        self.assertFalse(trace["containsPrivateContent"])
+        events = trace["events"]
+        stages = [event["stage"] for event in events]
+        snapshots = [event["metrics"] for event in events if event["stage"] == "bridge_snapshot"]
+        self.assertEqual([snapshot["prompt_present"] for snapshot in snapshots], [1, 0])
+        self.assertEqual(stages.count("navigation_committed"), 1)
+        self.assertLess(stages.index("send_timeout"), stages.index("bridge_failed"))
+        self.assertNotIn("send_attempted", stages)
+        for event in events:
+            self.assertTrue(all(isinstance(value, int) for value in event["metrics"].values()))
+        # The trace proves the normalized mismatch only; mechanisms stay labelled as hypotheses.
+        self.assertTrue(trace["hypothesesNotPhysicallyConfirmed"])
+        self.assertFalse(any("Trusted Types" in fact or "Quill" in fact for fact in trace["sourceFacts"]))
+
+    def test_imanager_ios_gemini_first_send_waits_for_stable_ready_composer(self):
+        runtime = (ROOT / "profiles/imanager/distribution/ios/ExternalAIBrowserView.swift").read_text()
+        store = (ROOT / "profiles/imanager/distribution/ios/AIBIDiagnosticsStore.swift").read_text()
+        trace = json.loads(
+            (ROOT / "fixtures/providers/gemini-ios-premature-send-stability-trace.json").read_text()
+        )
+        gate = trace["gateUnderTest"]
+        self.assertIn(f"const geminiSendStableSamples = {gate['stableSamples']};", runtime)
+        self.assertIn(f"const geminiSendStableMs = {gate['stableMs']};", runtime)
+        waiting = runtime.split("private func submitPromptWhenReady() async -> Bool {", 1)[1].split("\n    }\n", 1)[0]
+        self.assertIn("Date().addingTimeInterval(15)", waiting)
+        self.assertIn(f"Task.sleep(nanoseconds: {gate['pollIntervalMs']}_000_000)", waiting)
+
+        send = runtime.split("window.__starManagerSendPrompt = function()", 1)[1].split(
+            "window.__starManagerDidSubmit", 1
+        )[0]
+        # Every evaluation first drops the previous readiness, so any failed check or change restarts the count.
+        self.assertLess(send.index("if (window.__starManagerSubmitDispatched) return true;"), send.index("sendReadiness = null;"))
+        self.assertLess(send.index("sendReadiness = null;"), send.index("if (generationSeen()) return false;"))
+        # Existing exact text gate is unchanged and still runs before the Gemini stability gate.
+        exact = "if (!current || current !== normalize(window.__starManagerLastFilled || '')) return false;"
+        self.assertLess(send.index(exact), send.index("if (isGeminiProvider) {"))
+        gemini = send.split("if (isGeminiProvider) {", 1)[1].split("window.__starManagerSubmitAttempts", 1)[0]
+        self.assertIn("document.readyState !== 'complete' || sendCandidateCountInScope() > 1", gemini)
+        self.assertIn("input.isConnected && button.isConnected", gemini)
+        for same in ("previousReadiness.editor === input", "previousReadiness.button === button",
+                     "previousReadiness.raw === raw", "previousReadiness.attachments === attachments"):
+            self.assertIn(same, gemini)
+        self.assertIn("sendReadiness.samples < geminiSendStableSamples || now - sendReadiness.since < geminiSendStableMs) return false;", gemini)
+        self.assertNotIn("setTimeout", send)
+        self.assertLess(send.index("return false;\n              stableSamples = sendReadiness.samples;"), send.index("button.click();"))
+        # Other providers keep the boolean result; only Gemini reports a numeric sample count.
+        self.assertIn("return isGeminiProvider ? stableSamples : true;", send)
+        # A real fill restarts stability before mutating the editor; nothing refills after a click.
+        fill = runtime.split("window.__starManagerFillPrompt = function(text, force) {", 1)[1].split(
+            "window.__starManagerSendPrompt = function()", 1
+        )[0]
+        self.assertLess(fill.index("if (window.__starManagerSubmitDispatched || generationSeen()) return false;"), fill.index("sendReadiness = null;"))
+        # Generation seen once on this document (maybe the user's own send) suppresses refill and click
+        # through completion: the one-way flag is set by every generation check, never cleared.
+        self.assertIn("let generationObserved = false;", runtime)
+        self.assertIn("if (active) generationObserved = true;", runtime)
+        self.assertIn("return isGeneratingNow() || generationObserved;", runtime)
+        self.assertNotIn("generationObserved = false;\n", runtime.split("let generationObserved = false;", 1)[1])
+        state = runtime.split("window.__starManagerPromptState = function()", 1)[1].split("};", 1)[0]
+        self.assertIn("if (window.__starManagerSubmitDispatched || generationSeen()) return 3;", state)
+        # The native callers' existing one-way latch: a visible generation marks the task submitted.
+        self.assertIn("guard isGenerating, submittedAt == nil else { return }\n                hasSubmittedPrompt = true", runtime)
+        self.assertIn("if isGen, !hasSubmitted {\n                    hasSubmitted = true", runtime)
+        self.assertLess(fill.index("sendReadiness = null;"), fill.index("el.focus();"))
+        self.assertIn("CFGetTypeID(samples) != CFBooleanGetTypeID()", runtime)
+        self.assertIn('attemptMetrics["stable_samples"] = samples.intValue', runtime)
+        self.assertIn('"stable_samples": 0...1000', store)
+        self.assertIn('"send_attempted": "The single automatic send click', store)
+
+        self.assertTrue(trace["sanitized"])
+        self.assertFalse(trace["containsPrivateContent"])
+        self.assertIn("Not established causation", trace["inferenceNotPhysicallyConfirmed"])
+        # Earliest click the gate allows after the first ready poll: the later of the sample count at the
+        # existing cadence and the minimum duration. It is bounded well inside the 15 s submit window.
+        earliest = max((gate["stableSamples"] - 1) * gate["pollIntervalMs"], gate["stableMs"])
+        self.assertLessEqual(gate["stableMs"], (gate["stableSamples"] - 1) * gate["pollIntervalMs"])
+        self.assertLess(earliest * 4, gate["submitWindowMs"])
+        runs = {run["name"]: run for run in trace["runs"]}
+        for name, run in runs.items():
+            self.assertEqual((run["appVersion"], run["appBuild"], run["adapterVersion"]), ("2.6.8", "202610311912", "aibi-stargram-0.5.5"))
+            stages = [event["stage"] for event in run["events"]]
+            ms = {event["stage"]: event["ms"] for event in reversed(run["events"])}
+            self.assertEqual(stages.count("send_attempted"), 1)
+            self.assertEqual(stages.count("prompt_inserted"), 1)
+            self.assertLess(stages.index("prompt_inserted"), stages.index("send_attempted"))
+            gap = ms["send_attempted"] - ms["prompt_inserted"]
+            for event in run["events"]:
+                self.assertTrue(all(isinstance(value, int) for value in event["metrics"].values()))
+            if name.endswith("_premature"):
+                # Premature-ready rejection: these clicks happened before the gate could pass.
+                self.assertLess(gap, earliest)
+                self.assertIn("send_observed", stages)
+                self.assertNotIn("generation_completed", stages)
+                self.assertNotIn("result_applied", stages)
+                self.assertEqual(stages[-1], "run_failed")
+            else:
+                # Eventual-ready acceptance: a completed run is reachable without refill or a second click.
+                self.assertIn("result_applied", stages)
+                self.assertEqual(stages[-1], "run_completed")
+                self.assertLess(ms["browser_loaded"], ms["send_attempted"])
+        image = runs["image_run1_premature"]["events"]
+        image_ms = {event["stage"]: event["ms"] for event in image}
+        # Document load alone does not separate the runs: the image failure clicked after browser_loaded.
+        self.assertLess(image_ms["browser_loaded"], image_ms["send_attempted"])
+        self.assertLess(image_ms["attachment_ready"], image_ms["send_attempted"])
+        text_ms = {event["stage"]: event["ms"] for event in runs["text_run1_premature"]["events"]}
+        self.assertLess(text_ms["send_attempted"], text_ms["browser_loaded"])
+
+        # r4 iPhone acceptance: one click with the stable sample count, at most the bounded fills before it.
+        for run in trace["deviceAcceptance"]["runs"]:
+            stages = [event["stage"] for event in run["events"]]
+            attempts = [event for event in run["events"] if event["stage"] == "send_attempted"]
+            self.assertEqual(len(attempts), 1)
+            self.assertGreaterEqual(attempts[0]["metrics"]["stable_samples"], gate["stableSamples"])
+            fills = [event["metrics"]["attempt"] for event in run["events"] if event["stage"] == "prompt_inserted"]
+            self.assertLessEqual(len(fills), 3)
+            fill_indexes = [i for i, stage in enumerate(stages) if stage == "prompt_inserted"]
+            self.assertLess(max(fill_indexes), stages.index("send_attempted"))
+            self.assertEqual(fills, list(range(1, len(fills) + 1)))
+            self.assertEqual(stages[-2:], ["result_applied", "run_completed"])
+
+        # Ported gate (same constants, no timer, one-shot) in the portable runtime. Trace coverage only.
+        for path in ("packages/runtime/aibi-browser-runtime.js",):
+            portable = (ROOT / path).read_text()
+            submit = portable.split("RUNTIME.submitPrompt = function", 1)[1].split("RUNTIME.verifySubmission", 1)[0]
+            self.assertIn(f"const GEMINI_SEND_STABLE_SAMPLES = {gate['stableSamples']};", portable)
+            self.assertIn(f"const GEMINI_SEND_STABLE_MS = {gate['stableMs']};", portable)
+            self.assertIn("const MAX_PROMPT_FILLS_BEFORE_SEND = 3;", portable)
+            self.assertLess(submit.index("if (submitDispatched) return"), submit.index("writeQuillEditor(inputEl, lastInjectedPrompt)"))
+            # Visible generation (e.g. the user sent manually) stops before any hydration rewrite.
+            guard = "if (generationObserved || generationVisible(config)) {\n        generationObserved = true;\n        return notReady;"
+            self.assertLess(submit.index(guard), submit.index("writeQuillEditor(inputEl, lastInjectedPrompt)"))
+            self.assertLess(submit.index(guard), submit.index("submitBtn.click();"))
+            self.assertEqual(portable.count("generationObserved = true;"), 1)
+            self.assertNotIn("generationObserved = false;\n", portable.split("let generationObserved = false;", 1)[1])
+            self.assertIn("promptFillCount >= 1 && promptFillCount < MAX_PROMPT_FILLS_BEFORE_SEND", submit)
+            self.assertIn("document.readyState !== 'complete' || sendCandidateCount(config) > 1", submit)
+            self.assertLess(submit.index("current !== normalize(lastInjectedPrompt)) {\n        return notReady;"),
+                            submit.index("if (isGemini) {"))
+            self.assertLess(submit.index("now - sendReadiness.since < GEMINI_SEND_STABLE_MS) return notReady;"),
+                            submit.index("submitBtn.click();"))
+            self.assertNotIn("setTimeout", submit)
+            quill = portable.split("function writeQuillEditor(el, text) {", 1)[1].split("RUNTIME.injectPrompt", 1)[0]
+            self.assertIn("execCommand('insertText'", quill)
+            self.assertNotIn("insertHTML", quill)
+            self.assertIn("if (normalizePromptText(el.innerText) !== normalizePromptText(text)) return false;", quill)
+
     def test_imanager_android_distribution_uses_bounded_atomic_batch(self):
         runtime = (ROOT / "profiles/imanager/distribution/android/ExternalAIScripts.kt").read_text()
         pipeline = (ROOT / "profiles/imanager/distribution/android/ExternalAIMediaPipeline.kt").read_text()

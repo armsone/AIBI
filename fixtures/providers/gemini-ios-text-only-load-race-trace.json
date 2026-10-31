@@ -1,0 +1,40 @@
+{
+  "provider": "gemini",
+  "host": "stargram-ios-2.6.7-visible-sheet",
+  "adapterVersionAtCapture": "aibi-stargram-0.5.1",
+  "capturedAt": "2026-10-31T18:36:00+09:00",
+  "sanitized": true,
+  "containsPrivateContent": false,
+  "note": "Stage, elapsed-millisecond and integer metric values only, copied from the iPhone diagnostics export. No prompt, answer, URL, DOM, account or media content.",
+  "events": [
+    {"stage": "run_started", "ms": 0, "metrics": {}},
+    {"stage": "media_preparation_started", "ms": 6, "metrics": {"expected_count": 0}},
+    {"stage": "prompt_inserted", "ms": 787, "metrics": {"prompt_length": 479}},
+    {"stage": "bridge_snapshot", "ms": 1408, "metrics": {"composer_present": 1, "prompt_length": 444, "send_present": 0, "send_enabled": 0, "generation_active": 0, "input_count": 0, "preview_count": 0}},
+    {"stage": "bridge_snapshot", "ms": 2098, "metrics": {"composer_present": 1, "prompt_length": 444, "send_present": 1, "send_enabled": 1, "generation_active": 0, "input_count": 0, "preview_count": 0}},
+    {"stage": "browser_loaded", "ms": 3043, "metrics": {}},
+    {"stage": "run_failed", "ms": 48753, "metrics": {}}
+  ],
+  "absentStages": ["send_attempted", "send_observed", "send_timeout", "bridge_failed", "generation_failed"],
+  "sourceFacts": [
+    "prompt_inserted precedes browser_loaded: readiness came from document.readyState after commit, so the first .task(id: navigationGeneration) filled before didFinish.",
+    "didFinish increments navigationGeneration, cancelling the first task inside submitPromptWhenReady; cancellation exits without send_timeout.",
+    "The replacement task ran its full 45 s deadline (3043 + 45000 + one 700 ms sleep ~= 48753) without a successful fill, because every successful fill logs prompt_inserted.",
+    "No bridge_snapshot change was recorded after 2098 ms although composer state and a later blank page were reported; snapshots are logged only on change.",
+    "prompt_length is textContent length, which excludes <br> line breaks inserted by __starManagerFillPrompt; 479 vs 444 is not by itself proof of lost text."
+  ],
+  "undeterminedByThisTrace": [
+    "Whether a later main-frame navigation replaced the document (pre-0.5.5 builds did not log navigation start/commit or cancelled failures separately).",
+    "Whether __starManagerSendPrompt rejected the click between 2098 and 3043 ms because the normalized composer text differed from the inserted prompt (pre-0.5.5 snapshots did not report prompt_present)."
+  ],
+  "diagnosticsAddedIn055": {
+    "navigation_started": "logged at didStartProvisionalNavigation",
+    "navigation_committed": "logged at didCommit for the latest navigation",
+    "bridge_ready": "logged when readyState readiness marks the page ready before didFinish",
+    "browser_load_failed": "failure_kind 1 = cancelled, 3 = other; no longer reported as browser_loaded",
+    "prompt_failed": "observer present but fill rejected (logged once per failure streak)",
+    "bridge_failed": "observer helper missing or evaluation error (logged once per failure streak)",
+    "bridge_snapshot.prompt_present": "1 when normalized composer text equals the last inserted prompt"
+  },
+  "expected": "superseded-navigation-callbacks-never-mark-page-ready-and-next-device-trace-discriminates-fill-or-navigation-cause"
+}

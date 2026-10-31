@@ -1,0 +1,82 @@
+{
+  "provider": "chatgpt",
+  "host": "denimdex-ios",
+  "sanitized": true,
+  "containsPrivateContent": false,
+  "covers": "profiles/denimdex/distribution/apple/AIBILoginProbe.swift (AIBIAuthProbeScripts.authStateFunction, revealSidebarFunction)",
+  "basis": "Synthetic states only. Account marker selectors come from packages/providers/aibi-providers.json chatgpt.selectors.authenticatedIndicator; the closed-sidebar control is the one already used by the Stargram iOS probe. No DenimDex device DOM was observed.",
+  "states": [
+    {
+      "id": "account-marker-visible",
+      "elements": [
+        {"tag": "BUTTON", "attrs": {"data-testid": "accounts-profile-button", "aria-label": "프로필 메뉴"}},
+        {"tag": "DIV", "attrs": {"id": "prompt-textarea", "contenteditable": "true"}}
+      ],
+      "expected": {"state": "authenticated", "sidebarClick": false}
+    },
+    {
+      "id": "generic-composer-only",
+      "elements": [
+        {"tag": "DIV", "attrs": {"id": "prompt-textarea", "contenteditable": "true", "role": "textbox"}}
+      ],
+      "expected": {"state": "unknown", "sidebarClick": false}
+    },
+    {
+      "id": "login-visible-with-marker",
+      "elements": [
+        {"tag": "BUTTON", "attrs": {"data-testid": "login-button"}, "text": "Log in"},
+        {"tag": "BUTTON", "attrs": {"data-testid": "profile-button"}}
+      ],
+      "expected": {"state": "login", "sidebarClick": false}
+    },
+    {
+      "id": "challenge-visible",
+      "elements": [
+        {"tag": "FORM", "attrs": {"id": "challenge-form"}},
+        {"tag": "BUTTON", "attrs": {"data-testid": "profile-button"}}
+      ],
+      "expected": {"state": "challenge", "sidebarClick": false}
+    },
+    {
+      "id": "marker-loading",
+      "elements": [
+        {"tag": "BUTTON", "attrs": {"data-testid": "profile-button"}, "busyAncestor": true}
+      ],
+      "expected": {"state": "unknown", "sidebarClick": false}
+    },
+    {
+      "id": "collapsed-sidebar-unique-control",
+      "elements": [
+        {"tag": "BUTTON", "attrs": {"data-testid": "accounts-profile-button"}, "hiddenUntilSidebarOpen": true},
+        {"tag": "BUTTON", "attrs": {"aria-label": "사이드바 보기", "aria-controls": "browser-sidebar-popover", "aria-expanded": "false"}, "opensSidebar": true}
+      ],
+      "expected": {"state": "unknown", "sidebarClick": true, "stateAfterClick": "authenticated"}
+    },
+    {
+      "id": "collapsed-sidebar-ambiguous-controls",
+      "elements": [
+        {"tag": "BUTTON", "attrs": {"data-testid": "accounts-profile-button"}, "hiddenUntilSidebarOpen": true},
+        {"tag": "BUTTON", "attrs": {"data-testid": "open-sidebar-button", "aria-label": "Open sidebar"}, "opensSidebar": true},
+        {"tag": "BUTTON", "attrs": {"aria-label": "Open sidebar"}, "opensSidebar": true}
+      ],
+      "expected": {"state": "unknown", "sidebarClick": false}
+    },
+    {
+      "id": "collapsed-sidebar-disabled-control",
+      "elements": [
+        {"tag": "BUTTON", "attrs": {"data-testid": "accounts-profile-button"}, "hiddenUntilSidebarOpen": true},
+        {"tag": "BUTTON", "attrs": {"data-testid": "open-sidebar-button", "aria-disabled": "true"}, "opensSidebar": true}
+      ],
+      "expected": {"state": "unknown", "sidebarClick": false}
+    },
+    {
+      "id": "collapsed-sidebar-hidden-clone-only",
+      "elements": [
+        {"tag": "BUTTON", "attrs": {"data-testid": "accounts-profile-button"}, "hiddenUntilSidebarOpen": true},
+        {"tag": "BUTTON", "attrs": {"data-testid": "open-sidebar-button", "aria-hidden": "true"}, "opensSidebar": true}
+      ],
+      "expected": {"state": "unknown", "sidebarClick": false}
+    }
+  ],
+  "inconclusiveEnd": "A bounded check (Settings 8 s, login sheet 600 s from the first committed document) that never sees a login, challenge-free account marker resolves .inconclusive, shown as 확인 불가; it is never reported as logged in."
+}

@@ -8,7 +8,7 @@ Stargram Apple and Android are registered in `consumers/imanager.json`; the prof
 
 - Apple receives the host-adapted browser, media pipeline, and diagnostic store.
 - Android receives isolated runtime, media, security, cleaner, timing, authentication, and diagnostic adapters. The host-adapted `ExternalAISurface.kt` is also registered for renderer lifecycle maintenance. `ComposerScreen` and the host result sink remain app-owned and are not overwritten by the sync tool.
-- DenimDex Apple and Android retain their split native host engines; their runtime, providers and host-adapted diagnostic/session files are registered separately.
+- DenimDex Apple and Android retain their split native host engines; their runtime, providers and host-adapted diagnostic/session files are registered separately. The DenimDex Apple ChatGPT login probe (`AIBILoginProbe.swift`) is registered as a host-adapted auth probe since 0.5.5.
 
 ## Commands
 
@@ -46,3 +46,14 @@ Barobogi iOS currently uses its own Google/DeepL browser adapter; Windows curren
 ## Provider structure verification (0.5.4)
 
 The 2026-10-17 ChatGPT mobile control, deep composer and current image-preview changes are backed by sanitized official-page observations and static fixtures. DenimDex iOS completed a one-image task through attachment confirmation, one observed submission, stable response and host commit. Each other native host still needs its own stated verification level. Mac mail-specific runtime policies remain in its profile; portable composer changes must be merged without replacing those policies.
+
+## Gemini input/send and Claude login propagation (0.5.5)
+
+Source of the fixes: Stargram iPhone (2.6.8 / 202610311912, `aibi-stargram-0.5.5`). Physical iPhone evidence: Claude Settings auto-probe and login-sheet auto-dismiss (`fixtures/providers/claude-ios-collapsed-sidebar-hypothesis.json`, `deviceProbe`), Gemini text and one synthetic image with exactly one click after three stable samples, including one bounded pre-send refill on slow hydration (`fixtures/providers/gemini-ios-premature-send-stability-trace.json`, `deviceAcceptance`).
+
+- Portable runtime: Gemini Quill input (native `insertText`, then DOM paragraphs, success only on complete normalized equality), one-shot submit gate with document complete, unique send candidate and three unchanged polls spanning at least 900 ms, and at most three successful writes per page before any dispatch. Provider generation seen before our own dispatch (possibly the visible user's send) latches for the page: no rewrite or click afterwards, also after the stop indicator disappears; callers keep their existing not-dispatched timeout/takeover and never log an automatic `send_attempted` for it. ChatGPT/Claude follow the same latch; their normal flow is unchanged.
+- Stargram iPhone: the observer applies the same per-document generation latch to the refill state, the fill itself and the click; the native sheet/hidden runner already latch the task as submitted on observed generation.
+- DenimDex enables ChatGPT only; iPhone 0.4.1 bundles the runtime (Gemini paths dormant). The iPhone login probe now requires a visible, non-loading `authenticatedIndicator` account marker (login/challenge first, exact closed-sidebar reveal, bounded) and ends in an explicit unknown state; it no longer uses runtime readiness.
+- Release scope: 0.5.5 is embedded only in the iPhone apps Stargram 2.6.8 (202610311912) and DenimDex 0.4.1 (202610312018). Android adapters (Stargram, DenimDex) and the macOS mail host profile are not part of this release; their propagation and device verification are deferred and not claimed.
+
+Verification level per platform is recorded in `verification/2026-10-31-iphone.md`. Physical iPhone: Stargram three providers each one synthetic image to a native result with one automatic send; DenimDex positive login probe, automatic login-sheet dismissal and one full three-photo ChatGPT appraisal pipeline (proves the app pipeline, not appraisal accuracy). Trace coverage is not physical proof on Android or macOS.
