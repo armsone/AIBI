@@ -1,0 +1,72 @@
+{
+  "provider": "chatgpt",
+  "state": "login-loop-recovery",
+  "sanitized": true,
+  "containsPrivateContent": false,
+  "incidentDate": "2026-11-02",
+  "observedFailurePattern": {
+    "description": "Repeated auth bounce after provider/OAuth roundtrip without achieving guest home or authenticated account marker",
+    "sequence": [
+      "Navigate to official root entry https://chatgpt.com/",
+      "User initiates login -> redirected to auth origin or child window https://auth.openai.com/ or Google/Apple OAuth",
+      "User completes authentication (Google / MFA / SMS)",
+      "Redirect returns to https://chatgpt.com/",
+      "Instead of hydrated guest home or user account session, page immediately displays login required or redirects back to auth origin",
+      "User is trapped in repeated login prompt loop"
+    ],
+    "offendingCookieStatus": "Specific offending cookie unknown; root cause not established"
+  },
+  "scopedRemediation": {
+    "method": "Explicit manual cookie expiration across exact three ChatGPT-owned origins",
+    "exactOrigins": [
+      "https://chatgpt.com/",
+      "https://auth.openai.com/",
+      "https://auth0.openai.com/"
+    ],
+    "domainVariants": {
+      "chatgpt.com": [null, "chatgpt.com", ".chatgpt.com"],
+      "auth.openai.com": [null, "auth.openai.com", ".openai.com"],
+      "auth0.openai.com": [null, "auth0.openai.com", ".openai.com"]
+    },
+    "knownPaths": [
+      "/",
+      "/auth",
+      "/api/auth",
+      "/u",
+      "/mfa",
+      "/api/accounts"
+    ],
+    "prohibitions": [
+      "NO mass cookie removal calls",
+      "NO clearing shared Google account session or credentials",
+      "NO clearing sessions of other AI providers (Gemini, Claude)",
+      "NO automatic execution without explicit user confirmation",
+      "NO reset on ordinary first login, challenges, guest-with-login-button, or UNKNOWN states",
+      "NO persistence or export of cookie names or values"
+    ],
+    "recoveryAffordance": {
+      "trigger": "Loop detected after >=2 failed returns/excursions to auth origin",
+      "ui": "Error-only affordance with native confirmation dialog",
+      "dialogTitle": "ChatGPT 다시 연결",
+      "confirmationRequired": true,
+      "postResetAction": "Single user-initiated fresh root reload with LOAD_NO_CACHE"
+    }
+  },
+  "syntheticTrace": {
+    "roundtripsToLoop": 2,
+    "stages": [
+      "login_started",
+      "auth_window_opened",
+      "auth_window_closed",
+      "auth_loop_detected",
+      "auth_recovery_started",
+      "auth_recovery_completed"
+    ],
+    "expectedMetrics": {
+      "auth_roundtrips": 2,
+      "recovery_attempt": 1,
+      "cookie_callback_count": 6,
+      "recovery_result": 1
+    }
+  }
+}

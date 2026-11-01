@@ -132,7 +132,9 @@ class ExternalAIDiagnosticsStore(context: Context) {
             "generation_progress", "generation_completed", "generation_failed", "response_rejected", "result_applied",
             "manual_takeover", "run_cancelled", "run_failed", "run_completed", "bridge_snapshot", "event_limit_reached",
             "request_started", "request_response", "request_failed",
-            "navigation_blocked", "navigation_finished", "auth_window_opened", "auth_window_closed"
+            "navigation_blocked", "navigation_finished", "auth_window_opened", "auth_window_closed",
+            "login_started", "positive_auth_observed", "auth_loop_detected",
+            "auth_recovery_started", "auth_recovery_completed", "auth_recovery_failed"
         )
         private val limits = buildMap<String, IntRange> {
             listOf("expected_count", "prepared_count", "attached_count", "preview_count", "input_count", "uploading_count", "failed_count", "image_count").forEach { put(it, 0..100) }
@@ -141,6 +143,8 @@ class ExternalAIDiagnosticsStore(context: Context) {
             put("total_bytes", 0..1_000_000_000); put("attempt", 0..1000); put("stable_samples", 0..1000)
             put("request_kind", 1..2); put("http_status", 0..599); put("failure_kind", 1..3); put("request_id", 1..1000)
             put("host_category", 0..6); put("close_kind", 1..5)
+            put("auth_roundtrips", 0..50); put("recovery_attempt", 0..10)
+            put("cookie_callback_count", 0..1000); put("recovery_result", 0..2)
         }
         private fun safeMetrics(metrics: Map<String, Int>): JSONObject = JSONObject().also { result ->
             metrics.forEach { (key, value) -> if (limits[key]?.contains(value) == true) result.put(key, value) }
@@ -169,11 +173,21 @@ class ExternalAIDiagnosticsStore(context: Context) {
                 .put("3", "disallowed navigation")
                 .put("4", "child renderer gone")
                 .put("5", "sheet teardown or parent loss"))
+            .put("auth_roundtrips", JSONObject().put("0...50", "Observed roundtrip navigations between auth origins and provider"))
+            .put("recovery_attempt", JSONObject().put("0...10", "Number of login recovery reset attempts in this session"))
+            .put("cookie_callback_count", JSONObject().put("0...1000", "Bounded count of scoped expired cookie setCookie callbacks completed"))
+            .put("recovery_result", JSONObject().put("0", "failed or timed out").put("1", "completed without observed residual or rejection").put("2", "partial completion or residual detected"))
             .put("stages", JSONObject().put("request_started", "Request started; acceptance not confirmed")
                 .put("request_response", "HTTP response; image usability not confirmed").put("request_failed", "Request failed before normal response")
                 .put("navigation_blocked", "Navigation target outside security allowlist blocked")
                 .put("navigation_finished", "Navigation completed to allowed target")
                 .put("auth_window_opened", "OAuth child window opened via user gesture")
-                .put("auth_window_closed", "OAuth child window closed"))
+                .put("auth_window_closed", "OAuth child window closed")
+                .put("login_started", "Login surface started")
+                .put("positive_auth_observed", "Positive authenticated account marker confirmed")
+                .put("auth_loop_detected", "Repeated return to auth after roundtrip detected")
+                .put("auth_recovery_started", "Scoped ChatGPT cookie expiration initiated")
+                .put("auth_recovery_completed", "Scoped ChatGPT cookie expiration completed")
+                .put("auth_recovery_failed", "Scoped ChatGPT cookie expiration timed out or failed"))
     }
 }

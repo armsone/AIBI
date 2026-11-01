@@ -82,6 +82,11 @@
           "scope": "android-platform-adapter"
         },
         {
+          "source": "profiles/imanager/distribution/android/ExternalAILoginRecovery.kt",
+          "destination": "app/src/main/java/com/armsone/imanagerai/ui/externalai/ExternalAILoginRecovery.kt",
+          "scope": "android-platform-adapter"
+        },
+        {
           "source": "profiles/imanager/distribution/android/ExternalAIDiagnosticsStore.kt",
           "destination": "app/src/main/java/com/armsone/imanagerai/ui/externalai/ExternalAIDiagnosticsStore.kt",
           "scope": "privacy-safe-diagnostics"

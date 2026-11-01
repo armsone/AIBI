@@ -73,3 +73,20 @@
 When a provider opens OAuth through `window.open`, the Apple adapter must return a real child `WKWebView` from `createWebViewWith`, using the configuration supplied by WebKit. Loading that request in the main view and returning `nil` destroys the opener relationship and can leave a blank callback window. Keep the child visibly available for the official authentication flow; apply the existing navigation allowlist, do not inject task scripts in the child, and close/release it on `webViewDidClose`, user close, cancellation or adapter teardown. Bound the number of retained children. Existing session storage and authorized origins remain unchanged.
 
 A finished answer rejected by the host validator, or a finite extraction timeout, must retain the current conversation during visible takeover. Do not navigate to the provider home page and discard the answer. Format repair and translation item limits remain host policy, outside portable AIBI.
+
+## Provider Login Loop Maintenance & Scoped Cookie Expiration (0.5.7)
+
+- **Root URL Preservation**: Providers must be opened at their official canonical root entry (e.g. `https://chatgpt.com/`, never a direct login URL). Root excludes `/auth/*` and `/api/auth/*`. Guest home pages must stay open, not be treated as authenticated, nor forcibly redirected to login. Positive provider account evidence is strictly required for automatic surface dismissal.
+- **Async Callback Generation & URL Guards**: Async login callbacks must be protected against stale navigation, SPA URL shifts, and WebView replacement. Navigation generation advances on `onPageStarted` and finish; callbacks re-check `canInjectScript(currentWv.url)` and `url == checkUrl`.
+- **Loop Detection Policy**: Ordinary first login, challenge screens (Cloudflare/Arkose), guest-with-login-button, and UNKNOWN states must never trigger automatic resets or clicks. Repeated failed returns to auth origins (e.g. `auth.openai.com` / `auth0.openai.com` / `chatgpt.com/auth/*`) after provider roundtrip or OAuth excursion (≥2 failed returns) triggers an error-only user affordance. Shared `accounts.google.com` OAuth is an excursion only and never resets the target.
+- **Scoped Expiration Scope & Guardrails**:
+  - Remediates repeated auth bounce loops without clearing the entire shared WebView profile.
+  - Strictly limited to exact provider-owned origins: `https://chatgpt.com/`, `https://auth.openai.com/`, `https://auth0.openai.com/` (host-only, origin host, and `.openai.com` domain variants).
+  - Explicitly probes known paths (`/`, `/auth`, `/api/auth`, `/u`, `/mfa`, `/api/accounts`) and expires proper domain/path variants including `Secure` and `HttpOnly`, honoring `__Host-` and `__Secure-` prefixes.
+  - Mass cookie clearing APIs and broad app data deletion are strictly prohibited. Google accounts and other AI providers (Gemini, Claude) remain untouched.
+  - Memory-only token parsing with strict RFC 6265 token validation (max 128 chars) and bounded count (≤100). Never log, persist, or export cookie material or raw exception messages.
+  - Serialization prevents concurrent or double-click resets, tracks outstanding callbacks, and blocks subsequent resets until inflight callbacks settle.
+  - Reports attempted, completed, and rejected callbacks honestly, alongside residual probed names; Android CookieManager cannot guarantee all-path cookie absence, so fullclear is never falsely claimed.
+  - Requires explicit user confirmation via a native confirmation dialog detailing the exact scope (ChatGPT login reset only).
+  - Re-opens official root once with `LOAD_NO_CACHE`.
+- **Platform Scope & Limitations**: Implemented for Android host distribution (`profiles/imanager/distribution/android/`). Apple implementation is not yet updated. Android implementation remains unverified until TM executes compile/test runs. No guarantee is made that every future external provider login failure pattern is prevented.

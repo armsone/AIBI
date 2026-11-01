@@ -126,7 +126,7 @@ fun ExternalAISurface(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val diagnostics = remember { ExternalAIDiagnosticsStore(context) }
-    val diagnosticRun = remember(provider, prompt) { if (mode.isLogin) null else diagnostics.start(provider.name) }
+    val diagnosticRun = remember(provider, mode, prompt) { diagnostics.start(provider.name) }
     var taskCancelled by remember { mutableStateOf(false) }
     var hasDispatchedPrompt by remember { mutableStateOf(false) }
     var taskInitialized by remember { mutableStateOf(false) }
@@ -142,9 +142,22 @@ fun ExternalAISurface(
     val effectiveFallbackReason = activeFallbackReason ?: detectedFallbackReason
     var hasClosedOnAuth by remember { mutableStateOf(false) }
 
+    val recoveryTracker = remember(provider) { ExternalAILoginRecoveryTracker(provider) }
+    var detectedLoginLoop by remember { mutableStateOf(false) }
+    var hasAttemptedRecovery by remember { mutableStateOf(false) }
+    var isRecoveryInProgress by remember { mutableStateOf(false) }
+    var showRecoveryConfirmDialog by remember { mutableStateOf(false) }
+
+    LaunchedEffect(mode, diagnosticRun) {
+        if (mode.isLogin) {
+            record("login_started")
+        }
+    }
+
     fun handlePositiveAuthSuccess() {
         if (hasClosedOnAuth) return
         hasClosedOnAuth = true
+        record("positive_auth_observed")
         activeFallbackReason = null
         detectedFallbackReason = null
         CookieManager.getInstance().flush()
@@ -184,6 +197,13 @@ fun ExternalAISurface(
         // Destroy outside the child's own callback so WebView does not call back into a destroyed instance.
         Handler(Looper.getMainLooper()).post { child.destroy() }
         record("auth_window_closed", mapOf("close_kind" to closeKind))
+        if (mode.isLogin && provider == DirectAIProvider.OPEN_AI) {
+            recoveryTracker.onAuthWindowClosed(webViewRef?.url)
+            if (recoveryTracker.isLoopDetected && !detectedLoginLoop) {
+                detectedLoginLoop = true
+                record("auth_loop_detected", mapOf("auth_roundtrips" to recoveryTracker.roundtripCount))
+            }
+        }
         // The opener can finish sign-in by postMessage plus an in-page route change (no main-frame load), so
         // the bounded page checks run once more on the already-loaded document.
         if (closeKind != 5 && isPageReady && !taskCancelled && !hasClosedOnAuth && webViewRef != null) {
@@ -298,11 +318,13 @@ fun ExternalAISurface(
     }
 
     // LOGIN 모드: 내비게이션 완료 및 늦은 하이드레이션 중 긍정적 인증 상태를 감지하여 자동 닫기
-    LaunchedEffect(mode, navigationGeneration, isPageReady, taskCancelled) {
-        if (!mode.isLogin || hasClosedOnAuth || !isPageReady || taskCancelled) return@LaunchedEffect
+    LaunchedEffect(mode, navigationGeneration, isPageReady, taskCancelled, isRecoveryInProgress) {
+        if (!mode.isLogin || hasClosedOnAuth || !isPageReady || taskCancelled || isRecoveryInProgress) return@LaunchedEffect
         val wv = webViewRef ?: return@LaunchedEffect
+        val currentGen = navigationGeneration
+        val currentWv = wv
 
-        val currentUrl = wv.url
+        val currentUrl = currentWv.url
         if (!ExternalAISecurityPolicy.canInjectScript(currentUrl, provider)) {
             return@LaunchedEffect
         }
@@ -320,18 +342,22 @@ fun ExternalAISurface(
         // 인증은 여전히 계정 표식으로만 판정한다.
         var ambiguousChecks = 0
         var sidebarClicks = 0
-        while (isActive && !hasClosedOnAuth && !taskCancelled && webViewRef === wv && System.currentTimeMillis() - startTime < 45_000L) {
-            val checkUrl = wv.url
+        while (isActive && !hasClosedOnAuth && !taskCancelled && !isRecoveryInProgress && webViewRef === currentWv && navigationGeneration == currentGen && System.currentTimeMillis() - startTime < 45_000L) {
+            val checkUrl = currentWv.url
             if (!ExternalAISecurityPolicy.canInjectScript(checkUrl, provider)) {
                 break
             }
 
             val authScript = ExternalAIScripts.checkAuthStatusScript(provider)
             val authRes = suspendCancellableCoroutine<String?> { cont ->
-                wv.evaluateJavascript(authScript) { if (cont.isActive) cont.resume(it) }
+                currentWv.evaluateJavascript(authScript) { if (cont.isActive) cont.resume(it) }
             }
 
-            if (taskCancelled || webViewRef !== wv) return@LaunchedEffect
+            if (taskCancelled || isRecoveryInProgress || webViewRef !== currentWv || navigationGeneration != currentGen || hasClosedOnAuth) return@LaunchedEffect
+            val postCheckUrl = currentWv.url
+            if (postCheckUrl != checkUrl || !ExternalAISecurityPolicy.canInjectScript(postCheckUrl, provider)) {
+                break
+            }
 
             val check = ExternalAIScripts.parseAuthCheckResult(authRes)
             if (check.authenticated) {
@@ -348,9 +374,9 @@ fun ExternalAISurface(
                 ambiguousChecks++
                 if (hasExplicitClosedSidebarReveal(provider) && sidebarClicks < 6 && ambiguousChecks % 2 == 0) {
                     val clicked = suspendCancellableCoroutine<String?> { cont ->
-                        wv.evaluateJavascript(sidebarOpenScript(provider)) { if (cont.isActive) cont.resume(it) }
+                        currentWv.evaluateJavascript(sidebarOpenScript(provider)) { if (cont.isActive) cont.resume(it) }
                     }
-                    if (taskCancelled || webViewRef !== wv) return@LaunchedEffect
+                    if (taskCancelled || webViewRef !== currentWv || navigationGeneration != currentGen || hasClosedOnAuth) return@LaunchedEffect
                     if (clicked == "true") sidebarClicks++
                 }
             }
@@ -570,7 +596,7 @@ fun ExternalAISurface(
 
                 Column(Modifier.weight(1f)) {
                     Text(
-                        if (mode.isLogin) "${provider.title} 로그인" else "${provider.title}에서 만들기",
+                        if (mode.isLogin) { if (provider == DirectAIProvider.OPEN_AI) "ChatGPT" else "${provider.title} 로그인" } else "${provider.title}에서 만들기",
                         fontSize = 16.sp,
                         fontWeight = FontWeight.Bold,
                         color = BrandTheme.labelPrimary(appearance),
@@ -579,6 +605,7 @@ fun ExternalAISurface(
                     Text(
                         statusSubtitleText(
                             mode = mode,
+                            provider = provider,
                             detectedErrorMessage = detectedErrorMessage,
                             hasImportedAnswer = hasImportedAnswer,
                             isGenerating = isGenerating,
@@ -732,6 +759,40 @@ fun ExternalAISurface(
                 }
             }
 
+            // ChatGPT 로그인 루프 / 복구 안내 배너
+            AnimatedVisibility(visible = mode.isLogin && provider == DirectAIProvider.OPEN_AI && detectedLoginLoop && !hasAttemptedRecovery) {
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .background(BrandTheme.settingsSectionBackground(appearance))
+                        .padding(horizontal = 14.dp, vertical = 8.dp)
+                        .testTag("externalai.loginRecoveryBanner"),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Icon(
+                        Icons.Filled.Warning,
+                        contentDescription = null,
+                        tint = BrandTheme.accent,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Text(
+                        "로그인이 반복되거나 멈췄나요?",
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = BrandTheme.labelPrimary(appearance),
+                        modifier = Modifier.weight(1f)
+                    )
+                    ActionButton(
+                        title = "ChatGPT 다시 연결",
+                        icon = Icons.Filled.Refresh,
+                        testTag = "externalai.loginRecoveryAction",
+                        appearance = appearance,
+                        onClick = { showRecoveryConfirmDialog = true }
+                    )
+                }
+            }
+
             // WebView 표면
             Box(
                 Modifier
@@ -762,7 +823,7 @@ fun ExternalAISurface(
                                 builtInZoomControls = true
                                 displayZoomControls = false
                                 mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
-                                cacheMode = WebSettings.LOAD_DEFAULT
+                                cacheMode = if (mode.isLogin && provider == DirectAIProvider.OPEN_AI) WebSettings.LOAD_NO_CACHE else WebSettings.LOAD_DEFAULT
                                 userAgentString = userAgentString.replace("; wv", "")
                             }
 
@@ -800,6 +861,14 @@ fun ExternalAISurface(
 
                                 override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
                                     super.onPageStarted(view, url, favicon)
+                                    navigationGeneration += 1
+                                    if (mode.isLogin && provider == DirectAIProvider.OPEN_AI) {
+                                        recoveryTracker.onNavigation(url, isAuthWindow = false)
+                                        if (recoveryTracker.isLoopDetected && !detectedLoginLoop) {
+                                            detectedLoginLoop = true
+                                            record("auth_loop_detected", mapOf("auth_roundtrips" to recoveryTracker.roundtripCount))
+                                        }
+                                    }
                                     isPageReady = false
                                     detectedErrorMessage = null
                                     val urlReason = ExternalAIFallbackClassifier.classifyUrl(url)
@@ -816,6 +885,14 @@ fun ExternalAISurface(
                                 }
 
                                 override fun onPageFinished(view: WebView?, url: String?) {
+                                    if (mode.isLogin && provider == DirectAIProvider.OPEN_AI) {
+                                        settings.cacheMode = WebSettings.LOAD_DEFAULT
+                                        recoveryTracker.onNavigation(url, isAuthWindow = false)
+                                        if (recoveryTracker.isLoopDetected && !detectedLoginLoop) {
+                                            detectedLoginLoop = true
+                                            record("auth_loop_detected", mapOf("auth_roundtrips" to recoveryTracker.roundtripCount))
+                                        }
+                                    }
                                     super.onPageFinished(view, url)
                                     cookieManager.flush()
                                     isPageReady = true
@@ -1001,13 +1078,20 @@ fun ExternalAISurface(
                                     }
                                     popupWebViewRef = popup
                                     record("auth_window_opened")
+                                    if (mode.isLogin && provider == DirectAIProvider.OPEN_AI) {
+                                        recoveryTracker.onAuthWindowOpened()
+                                    }
                                     transport.webView = popup
                                     resultMsg.sendToTarget()
                                     return true
                                 }
                             }
 
-                            loadUrl(provider.url)
+                            if (mode.isLogin && provider == DirectAIProvider.OPEN_AI) {
+                                loadUrl(provider.url, mapOf("Cache-Control" to "no-cache", "Pragma" to "no-cache"))
+                            } else {
+                                loadUrl(provider.url)
+                            }
                             webViewRef = this
                         }
                     },
@@ -1052,6 +1136,112 @@ fun ExternalAISurface(
                                     .weight(1f)
                                     .testTag("externalai.authWindow")
                             )
+                        }
+                    }
+                }
+                if (isRecoveryInProgress) {
+                    Box(
+                        Modifier
+                            .fillMaxSize()
+                            .background(Color.Black.copy(alpha = 0.25f))
+                            .clickable(enabled = true) {}
+                    )
+                }
+            }
+        }
+
+        if (showRecoveryConfirmDialog) {
+            Dialog(
+                onDismissRequest = { if (!isRecoveryInProgress) showRecoveryConfirmDialog = false },
+                properties = DialogProperties(usePlatformDefaultWidth = false)
+            ) {
+                Surface(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(24.dp),
+                    shape = RoundedCornerShape(16.dp),
+                    color = BrandTheme.settingsSectionBackground(appearance),
+                    tonalElevation = 6.dp
+                ) {
+                    Column(
+                        modifier = Modifier.padding(20.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Text(
+                            "ChatGPT 다시 연결",
+                            fontSize = 17.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = BrandTheme.labelPrimary(appearance)
+                        )
+                        Text(
+                            "ChatGPT 로그인 정보만 초기화하고 공식 홈으로 다시 연결할까요?\n(Google 계정이나 다른 AI 로그인 상태는 유지돼요)",
+                            fontSize = 14.sp,
+                            color = BrandTheme.labelSecondary(appearance),
+                            lineHeight = 20.sp
+                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.End
+                        ) {
+                            TextButton(
+                                onClick = { showRecoveryConfirmDialog = false },
+                                enabled = !isRecoveryInProgress
+                            ) {
+                                Text("취소", color = BrandTheme.labelSecondary(appearance))
+                            }
+                            Spacer(Modifier.width(8.dp))
+                            TextButton(
+                                onClick = {
+                                    if (!hasAttemptedRecovery && !isRecoveryInProgress) {
+                                        hasAttemptedRecovery = true
+                                        isRecoveryInProgress = true
+                                        scope.launch {
+                                            record("auth_recovery_started", mapOf("recovery_attempt" to 1))
+                                            closeAuthWindow(2)
+                                            isPageReady = false
+                                            navigationGeneration += 1
+                                            val capturedWv = webViewRef
+                                            capturedWv?.stopLoading()
+                                            val resetResult = ExternalAILoginRecovery.clearChatGPTCookiesScoped()
+                                            isRecoveryInProgress = false
+                                            showRecoveryConfirmDialog = false
+                                            if (taskCancelled || webViewRef !== capturedWv) {
+                                                return@launch
+                                            }
+                                            if (resetResult.success) {
+                                                val recoveryResultCode = if (resetResult.partial) 2 else 1
+                                                record("auth_recovery_completed", mapOf(
+                                                    "recovery_result" to recoveryResultCode,
+                                                    "cookie_callback_count" to resetResult.completedCount
+                                                ))
+                                                if (resetResult.partial) {
+                                                    detectedErrorMessage = "일부 로그인 정보가 남아 있을 수 있어요. 다시 열린 화면을 확인해 주세요."
+                                                }
+                                                recoveryTracker.reset()
+                                                detectedLoginLoop = false
+                                                capturedWv?.let { wv ->
+                                                    wv.settings.cacheMode = WebSettings.LOAD_NO_CACHE
+                                                    wv.loadUrl(provider.url, mapOf("Cache-Control" to "no-cache", "Pragma" to "no-cache"))
+                                                }
+                                            } else {
+                                                record("auth_recovery_failed", mapOf("recovery_result" to 0))
+                                                detectedErrorMessage = "로그인 초기화에 실패했어요. 잠시 후 다시 시도해 주세요."
+                                            }
+                                        }
+                                    }
+                                },
+                                enabled = !isRecoveryInProgress
+                            ) {
+                                if (isRecoveryInProgress) {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(16.dp),
+                                        strokeWidth = 2.dp,
+                                        color = BrandTheme.accent
+                                    )
+                                } else {
+                                    Text("확인", color = BrandTheme.accent, fontWeight = FontWeight.Bold)
+                                }
+                            }
                         }
                     }
                 }
@@ -1325,6 +1515,7 @@ private fun navigationCategory(url: String?, provider: DirectAIProvider): Int {
 
 private fun statusSubtitleText(
     mode: ExternalAISurfaceMode,
+    provider: DirectAIProvider,
     detectedErrorMessage: String?,
     hasImportedAnswer: Boolean,
     isGenerating: Boolean,
@@ -1337,7 +1528,7 @@ private fun statusSubtitleText(
     fillFailed: Boolean,
     elapsedSeconds: Long
 ): String {
-    if (mode.isLogin) return "공식 로그인 페이지"
+    if (mode.isLogin) return if (provider == DirectAIProvider.OPEN_AI) "공식 웹사이트" else "공식 로그인 페이지"
     if (detectedErrorMessage != null) return detectedErrorMessage
     if (hasImportedAnswer) return "답변을 가져왔어요"
     if (isGenerating || hasSubmittedPrompt) {

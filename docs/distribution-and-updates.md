@@ -64,3 +64,17 @@ Android Stargram profile (`profiles/imanager/distribution/android/`) embeds Gemi
 
 - Source and static packaging verified; actual physical device execution flows on Android and macOS remain unproven and are not claimed.
 - Verification details recorded in `verification/2026-11-01-embedding.md`.
+
+## ChatGPT login-loop maintenance and scoped recovery (0.5.7)
+
+Source of the maintenance: Android Stargram profile (`profiles/imanager/distribution/android/`).
+Known prior runtime repair: On a physical device experiencing repeated login loop (ChatGPT root -> login -> Google/MFA -> login prompt repeated), explicit manual expiration of cookies strictly at `chatgpt.com`, `auth.openai.com`, and `auth0.openai.com` successfully restored the guest home page and enabled successful user login. The specific offending cookie remains unknown; root cause is not claimed as established.
+
+- New implementation:
+  - Added `ExternalAILoginRecovery.kt` providing bounded `ExternalAILoginRecoveryTracker` (requires two failed returns to auth origin before flagging loop) and scoped `ExternalAILoginRecovery.clearChatGPTCookiesScoped()` (expires cookies only at the 3 ChatGPT origins; never calls `removeAllCookies()`, `deleteAllData()`, or clears Google/Gemini/Claude sessions).
+  - Updated `ExternalAISurface.kt` with generation advancement on `onPageStarted` (preventing stale async callbacks from marking auth success), privacy-safe login diagnostics (`login_started`, `positive_auth_observed`, `auth_loop_detected`, `auth_recovery_*`), and an error-only user affordance with native confirmation dialog for "ChatGPT 다시 연결".
+  - Updated `ExternalAIDiagnosticsStore.kt` allowlists and `consumers/imanager.json` mapping.
+  - Added sanitized fixture `fixtures/providers/chatgpt-login-loop.json` and unit tests `tests/test_auth_recovery.py`.
+- Platform status: Android distribution adapter updated. Apple implementation is not yet updated and retains prior behavior.
+- Verification status: The newly authored automated helper code, UI flows, and diagnostic logging have NOT been executed on device in this implementation phase. They remain unverified until TM test/build batch. No build, test command, or device verification was performed by the implementation worker.
+- Verification record: `verification/2026-11-02-login-recovery.md`.
