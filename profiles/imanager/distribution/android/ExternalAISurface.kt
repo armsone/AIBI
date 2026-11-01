@@ -25,6 +25,7 @@ import android.webkit.ValueCallback
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
+import android.webkit.WebResourceResponse
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
@@ -73,6 +74,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -102,6 +104,7 @@ import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
+import java.io.ByteArrayInputStream
 import kotlin.coroutines.resume
 
 @SuppressLint("SetJavaScriptEnabled")
@@ -167,6 +170,26 @@ fun ExternalAISurface(
     var nativeAttachmentBatch by remember { mutableStateOf(ExternalAINativeAttachmentBatch.EMPTY) }
     var nativeAttachmentPreparationFailed by remember { mutableStateOf(false) }
     var hasAttachedBatch by remember(attachments) { mutableStateOf(attachments.isEmpty()) }
+    val fillEpoch = remember { intArrayOf(0) }
+
+    // Visible OAuth child window. closeKind: 1 page closed itself, 2 user closed, 3 disallowed navigation,
+    // 4 child renderer gone, 5 sheet teardown or parent loss.
+    fun closeAuthWindow(closeKind: Int) {
+        val child = popupWebViewRef ?: return
+        popupWebViewRef = null
+        child.stopLoading()
+        child.webChromeClient = WebChromeClient()
+        child.webViewClient = WebViewClient()
+        (child.parent as? ViewGroup)?.removeView(child)
+        // Destroy outside the child's own callback so WebView does not call back into a destroyed instance.
+        Handler(Looper.getMainLooper()).post { child.destroy() }
+        record("auth_window_closed", mapOf("close_kind" to closeKind))
+        // The opener can finish sign-in by postMessage plus an in-page route change (no main-frame load), so
+        // the bounded page checks run once more on the already-loaded document.
+        if (closeKind != 5 && isPageReady && !taskCancelled && !hasClosedOnAuth && webViewRef != null) {
+            navigationGeneration += 1
+        }
+    }
 
     LaunchedEffect(attachments) {
         nativeAttachmentPreparationFailed = false
@@ -292,6 +315,11 @@ fun ExternalAISurface(
         }
 
         val startTime = System.currentTimeMillis()
+        // ChatGPT·Claude 모바일은 계정 표식이 접힌 사이드바 안에 있다(iPhone 실측). 증거가 전혀 없는 확인에서만,
+        // 닫힘 상태가 명시된 정확한 사이드바 컨트롤을 이 페이지에서 최대 6번(두 번째 확인부터 격회) 연다.
+        // 인증은 여전히 계정 표식으로만 판정한다.
+        var ambiguousChecks = 0
+        var sidebarClicks = 0
         while (isActive && !hasClosedOnAuth && !taskCancelled && webViewRef === wv && System.currentTimeMillis() - startTime < 45_000L) {
             val checkUrl = wv.url
             if (!ExternalAISecurityPolicy.canInjectScript(checkUrl, provider)) {
@@ -316,6 +344,14 @@ fun ExternalAISurface(
             } else {
                 if (detectedFallbackReason == ExternalAIFallbackReason.LOGIN_REQUIRED) {
                     detectedFallbackReason = null
+                }
+                ambiguousChecks++
+                if (hasExplicitClosedSidebarReveal(provider) && sidebarClicks < 6 && ambiguousChecks % 2 == 0) {
+                    val clicked = suspendCancellableCoroutine<String?> { cont ->
+                        wv.evaluateJavascript(sidebarOpenScript(provider)) { if (cont.isActive) cont.resume(it) }
+                    }
+                    if (taskCancelled || webViewRef !== wv) return@LaunchedEffect
+                    if (clicked == "true") sidebarClicks++
                 }
             }
 
@@ -344,7 +380,11 @@ fun ExternalAISurface(
             submitPromptWhenReady(wv, baselineForSubmission)
             return@LaunchedEffect
         }
+        // A navigation cancels this effect mid-loop; without the reset the sheet kept saying "채우는 중" on a
+        // later login page. The epoch keeps a late cancelled finally from clearing a newer fill's flag.
+        val epoch = ++fillEpoch[0]
         isAutoFilling = true
+        try {
         fillFailed = false
         val startTime = System.currentTimeMillis()
         var baselineCaptured = false
@@ -397,6 +437,9 @@ fun ExternalAISurface(
         isAutoFilling = false
         if (!hasSubmittedPrompt) {
             fillFailed = true
+        }
+        } finally {
+            if (fillEpoch[0] == epoch) isAutoFilling = false
         }
     }
 
@@ -485,8 +528,11 @@ fun ExternalAISurface(
         )
     ) {
         BackHandler {
+            val child = popupWebViewRef
             val wv = webViewRef
-            if (wv != null && wv.canGoBack()) {
+            if (child != null) {
+                if (child.canGoBack()) child.goBack() else closeAuthWindow(2)
+            } else if (wv != null && wv.canGoBack()) {
                 wv.goBack()
             } else {
                 onClose()
@@ -731,6 +777,11 @@ fun ExternalAISurface(
                                 ): Boolean {
                                     val targetUrl = request?.url?.toString()
                                     if (!ExternalAISecurityPolicy.isAllowedUrl(targetUrl, provider)) {
+                                        record("navigation_blocked", mapOf(
+                                            "host_category" to navigationCategory(targetUrl, provider),
+                                            "auth_window" to 0,
+                                            "main_frame" to if (request?.isForMainFrame == true) 1 else 0
+                                        ))
                                         return true
                                     }
                                     val urlReason = ExternalAIFallbackClassifier.classifyUrl(targetUrl)
@@ -769,6 +820,10 @@ fun ExternalAISurface(
                                     cookieManager.flush()
                                     isPageReady = true
                                     navigationGeneration += 1
+                                    record("navigation_finished", mapOf(
+                                        "host_category" to navigationCategory(url, provider),
+                                        "auth_window" to 0
+                                    ))
                                     val urlReason = ExternalAIFallbackClassifier.classifyUrl(url)
                                     if (urlReason != null) {
                                         detectedFallbackReason = urlReason
@@ -813,6 +868,7 @@ fun ExternalAISurface(
                                         return true
                                     }
                                     taskCancelled = true
+                                    closeAuthWindow(5)
                                     webViewRef = null
                                     rendererDead = true
                                     (dead.parent as? ViewGroup)?.removeView(dead)
@@ -849,19 +905,33 @@ fun ExternalAISurface(
                                     isUserGesture: Boolean,
                                     resultMsg: android.os.Message?
                                 ): Boolean {
-                                    if (!isUserGesture) return false
+                                    // Real child window (portable contract 0.5.3, Mac Claude OAuth 2026-10-03): the
+                                    // sign-in page returns its result to window.opener and closes itself. Loading the
+                                    // popup URL in this view dropped the opener and left a blank Google callback on
+                                    // Android. Same allowlist, no task scripts, at most one child.
+                                    if (!isUserGesture || taskCancelled || hasClosedOnAuth) return false
                                     val target = view ?: return false
+                                    if (target !== webViewRef || popupWebViewRef != null) return false
                                     val transport = resultMsg?.obj as? WebView.WebViewTransport ?: return false
-                                    popupWebViewRef?.destroy()
                                     val popup = WebView(ctx).apply {
+                                        layoutParams = ViewGroup.LayoutParams(
+                                            ViewGroup.LayoutParams.MATCH_PARENT,
+                                            ViewGroup.LayoutParams.MATCH_PARENT
+                                        )
                                         settings.apply {
                                             javaScriptEnabled = true
                                             domStorageEnabled = true
                                             databaseEnabled = true
+                                            setSupportMultipleWindows(false)
                                             mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
                                             userAgentString = target.settings.userAgentString
                                         }
                                         CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
+                                        webChromeClient = object : WebChromeClient() {
+                                            override fun onCloseWindow(window: WebView?) {
+                                                if (window != null && window === popupWebViewRef) closeAuthWindow(1)
+                                            }
+                                        }
                                         webViewClient = object : WebViewClient() {
                                             override fun shouldOverrideUrlLoading(
                                                 popupView: WebView?,
@@ -869,17 +939,49 @@ fun ExternalAISurface(
                                             ): Boolean {
                                                 val targetUrl = request?.url?.toString() ?: return true
                                                 if (targetUrl == "about:blank") return false
-                                                if (ExternalAISecurityPolicy.isAllowedUrl(targetUrl, provider)) {
-                                                    target.loadUrl(targetUrl)
-                                                } else {
-                                                    val message = "허용되지 않은 로그인 페이지예요."
-                                                    detectedErrorMessage = message
-                                                    onError(message)
-                                                }
-                                                popupView?.stopLoading()
-                                                popupView?.destroy()
-                                                if (popupWebViewRef === popupView) popupWebViewRef = null
+                                                if (ExternalAISecurityPolicy.isAllowedUrl(targetUrl, provider)) return false
+                                                record("navigation_blocked", mapOf(
+                                                    "host_category" to navigationCategory(targetUrl, provider),
+                                                    "auth_window" to 1,
+                                                    "main_frame" to if (request?.isForMainFrame == true) 1 else 0
+                                                ))
                                                 return true
+                                            }
+
+                                            // A first popup load can bypass shouldOverrideUrlLoading; refuse it here.
+                                            override fun shouldInterceptRequest(
+                                                popupView: WebView?,
+                                                request: WebResourceRequest?
+                                            ): WebResourceResponse? {
+                                                val req = request ?: return null
+                                                val requestUrl = req.url?.toString()
+                                                if (!req.isForMainFrame || requestUrl == "about:blank" ||
+                                                    ExternalAISecurityPolicy.isAllowedUrl(requestUrl, provider)
+                                                ) return null
+                                                return WebResourceResponse(
+                                                    "text/plain", "UTF-8", 403, "Forbidden",
+                                                    emptyMap(), ByteArrayInputStream(ByteArray(0))
+                                                )
+                                            }
+
+                                            override fun onPageStarted(popupView: WebView?, url: String?, favicon: Bitmap?) {
+                                                if (url == null || url == "about:blank" || popupView !== popupWebViewRef) return
+                                                if (!ExternalAISecurityPolicy.isAllowedUrl(url, provider)) {
+                                                    record("navigation_blocked", mapOf(
+                                                        "host_category" to navigationCategory(url, provider),
+                                                        "auth_window" to 1,
+                                                        "main_frame" to 1
+                                                    ))
+                                                    closeAuthWindow(3)
+                                                }
+                                            }
+
+                                            override fun onPageFinished(popupView: WebView?, url: String?) {
+                                                if (popupView !== popupWebViewRef) return
+                                                record("navigation_finished", mapOf(
+                                                    "host_category" to navigationCategory(url, provider),
+                                                    "auth_window" to 1
+                                                ))
                                             }
 
                                             override fun onRenderProcessGone(
@@ -887,14 +989,18 @@ fun ExternalAISurface(
                                                 detail: android.webkit.RenderProcessGoneDetail?
                                             ): Boolean {
                                                 val dead = popupView ?: return true
-                                                if (popupWebViewRef === dead) popupWebViewRef = null
-                                                dead.stopLoading()
-                                                dead.destroy()
+                                                if (dead === popupWebViewRef) {
+                                                    closeAuthWindow(4)
+                                                } else {
+                                                    (dead.parent as? ViewGroup)?.removeView(dead)
+                                                    dead.destroy()
+                                                }
                                                 return true
                                             }
                                         }
                                     }
                                     popupWebViewRef = popup
+                                    record("auth_window_opened")
                                     transport.webView = popup
                                     resultMsg.sendToTarget()
                                     return true
@@ -910,6 +1016,45 @@ fun ExternalAISurface(
                         .testTag("externalai.webview")
                 )
                 }
+                popupWebViewRef?.let { child ->
+                    Column(
+                        Modifier
+                            .fillMaxSize()
+                            .background(BrandTheme.settingsBackground(appearance))
+                    ) {
+                        Row(
+                            Modifier
+                                .fillMaxWidth()
+                                .background(BrandTheme.settingsSectionBackground(appearance))
+                                .padding(horizontal = 12.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                "${provider.title} 공식 로그인 창",
+                                fontSize = 12.sp,
+                                color = BrandTheme.labelSecondary(appearance),
+                                maxLines = 1,
+                                modifier = Modifier.weight(1f)
+                            )
+                            ActionButton(
+                                title = "로그인 창 닫기",
+                                icon = Icons.Filled.Close,
+                                testTag = "externalai.authWindowClose",
+                                appearance = appearance,
+                                onClick = { closeAuthWindow(2) }
+                            )
+                        }
+                        key(child) {
+                            AndroidView(
+                                factory = { child },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .weight(1f)
+                                    .testTag("externalai.authWindow")
+                            )
+                        }
+                    }
+                }
             }
         }
     }
@@ -919,11 +1064,7 @@ fun ExternalAISurface(
             if (!hasImportedAnswer && !taskCancelled) record("run_cancelled")
             taskCancelled = true
             webViewRef?.evaluateJavascript(ExternalAIScripts.cancelTaskScript(), null)
-            popupWebViewRef?.let { popup ->
-                popup.stopLoading()
-                popup.destroy()
-            }
-            popupWebViewRef = null
+            closeAuthWindow(5)
             webViewRef?.let { wv ->
                 wv.stopLoading()
                 wv.destroy()
@@ -1164,6 +1305,22 @@ private suspend fun WebView.dispatchTrustedTap(point: Pair<Float, Float>) {
         consumed
     }
     Log.d("AIBITrustedTouch", "x=${point.first} y=${point.second} down=$downConsumed up=$upConsumed")
+}
+
+// Diagnostics category only; the URL, host and path are never stored. 0 unparseable, 1 about:blank,
+// 2 non-https scheme, 3 provider script origin, 4 provider/login auth origin, 5 shared CDN/challenge host,
+// 6 other https host (outside the allowlist).
+private fun navigationCategory(url: String?, provider: DirectAIProvider): Int {
+    if (url.isNullOrBlank()) return 0
+    if (url == "about:blank") return 1
+    val scheme = runCatching { java.net.URI(url).scheme }.getOrNull()?.lowercase() ?: return 0
+    if (scheme != "https") return 2
+    return when {
+        ExternalAISecurityPolicy.canInjectScript(url, provider) -> 3
+        ExternalAISecurityPolicy.isAuthOrigin(url, provider) -> 4
+        ExternalAISecurityPolicy.isAllowedUrl(url, provider) -> 5
+        else -> 6
+    }
 }
 
 private fun statusSubtitleText(

@@ -1,6 +1,6 @@
 # MailTranslator native macOS host profile
 
-Consumer: `/Users/armsone/git/MailTranslator-MacOS`. Native AppKit/WKWebView adapter; existing persistent web-account sessions for ChatGPT, Claude and Gemini. Mail HTML/images are rendered in a separate isolated browser.
+Consumer: `/Users/armsone/git/HTT-MacOS` (formerly Barobogi-MacOS; the standalone MailTranslator-MacOS checkout is historical). The `mailtranslator` consumer ID is kept for compatibility. Native AppKit/WKWebView adapter; existing persistent web-account sessions for ChatGPT, Claude and Gemini. Mail HTML/images are rendered in a separate isolated browser.
 
 The host owns translation segment ids, per-batch plain-text record markers and strict validation (legacy JSON compatibility remains), frozen batches, consent, remembered provider choice, Mail toolbar overlay, HTML rendering and OCR placement. It applies only text between its unpredictable batch markers; surrounding web UI labels are not applied. All matching markers are validated, including unexpected/duplicate IDs and premature END. Omitted or invalid values remain pending for one same-provider retry; repeated omissions become visible failures. Already completed items are not resent, the four-batch action limit remains, and cancellation/document/provider changes clear retry state. Only an explicit translation action sends subject/body/OCR text; selecting a provider or importing a file does not send it. None of these policies becomes a portable default.
 

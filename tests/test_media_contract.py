@@ -405,8 +405,10 @@ class MediaContractTests(unittest.TestCase):
             self.assertEqual(fills, list(range(1, len(fills) + 1)))
             self.assertEqual(stages[-2:], ["result_applied", "run_completed"])
 
-        # Ported gate (same constants, no timer, one-shot) in the portable runtime. Trace coverage only.
-        for path in ("packages/runtime/aibi-browser-runtime.js",):
+        # Ported gate (same constants, no timer, one-shot) in the portable runtime, its Mac profile copy and
+        # Stargram Android's native claim. Trace coverage only; not physical proof on those platforms.
+        for path in ("packages/runtime/aibi-browser-runtime.js",
+                     "profiles/mailtranslator/distribution/macos/aibi-browser-runtime.js"):
             portable = (ROOT / path).read_text()
             submit = portable.split("RUNTIME.submitPrompt = function", 1)[1].split("RUNTIME.verifySubmission", 1)[0]
             self.assertIn(f"const GEMINI_SEND_STABLE_SAMPLES = {gate['stableSamples']};", portable)
@@ -430,6 +432,27 @@ class MediaContractTests(unittest.TestCase):
             self.assertIn("execCommand('insertText'", quill)
             self.assertNotIn("insertHTML", quill)
             self.assertIn("if (normalizePromptText(el.innerText) !== normalizePromptText(text)) return false;", quill)
+        scripts = (ROOT / "profiles/imanager/distribution/android/ExternalAIScripts.kt").read_text()
+        claim = scripts.split("private fun geminiClaimGate(", 1)[1].split('""".trimIndent()', 1)[0]
+        self.assertLess(claim.index("if (smGenerating) return JSON.stringify({found:false});"), claim.index("smWriteQuill(input, smExpected)"))
+        self.assertIn("if (window.__sm_cancelled || window.__sm_submit_dispatched) return JSON.stringify({found:false});", claim)
+        self.assertIn("if (smFills >= 1 && smFills < 3) {", claim)
+        self.assertIn("composer && findSendCandidates(composer).length > 1", claim)
+        self.assertIn(f"window.__sm_send_readiness.samples < {gate['stableSamples']} || smNow - window.__sm_send_readiness.since < {gate['stableMs']}", claim)
+        self.assertNotIn("setTimeout", claim)
+        self.assertNotIn(".click()", claim)
+        self.assertIn("${if (provider == DirectAIProvider.GEMINI) geminiClaimGate(providerSelectors(provider).generating) else \"\"}", scripts)
+        # Android needs no extra latch: after every claim the caller verifies (new answer or visible
+        # generation) and a positive result ends claiming for the task, so a refill after generation stops
+        # is unreachable. Kept as the documented guard.
+        surface = (ROOT / "profiles/imanager/distribution/android/ExternalAISurface.kt").read_text()
+        claiming = surface.split("suspend fun submitPromptWhenReady(", 1)[1].split("\n    }\n", 1)[0]
+        self.assertLess(claiming.index("dispatchAIBISubmitOnce"), claiming.index("verifySubmissionScript"))
+        self.assertLess(claiming.index("verifySubmissionScript"), claiming.index("hasSubmittedPrompt = true"))
+        self.assertIn("var submitted = !window.__sm_cancelled && (countIncreased || isGenerating);", scripts)
+        android_quill = scripts.split("private val quillWriteHelpers", 1)[1].split('""".trimIndent()', 1)[0]
+        self.assertNotIn("insertHTML", android_quill)
+        self.assertIn("if (smNorm(el.innerText) !== smNorm(text)) return false;", android_quill)
 
     def test_imanager_android_distribution_uses_bounded_atomic_batch(self):
         runtime = (ROOT / "profiles/imanager/distribution/android/ExternalAIScripts.kt").read_text()

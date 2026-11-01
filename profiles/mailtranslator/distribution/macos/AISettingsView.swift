@@ -1,7 +1,7 @@
 import SwiftUI
 import ServiceManagement
 
-// 일반 설정: Dock·Mail 버튼·로그인 자동 시작. 브라우저 설치는 같은 창의 브라우저 탭에 둔다.
+// 앱 설정: HTT 정보·테마·Dock·Mail 버튼·로그인 자동 시작. 브라우저 설치는 같은 창의 브라우저 번역 섹션에 둔다.
 
 struct AISettingsView: View {
     @State private var accounts = AIBIAccounts.shared
@@ -17,15 +17,56 @@ struct AISettingsView: View {
     @State private var loginEnabled = false
     @State private var loginStatus = ""
     @State private var loginNeedsApproval = false
+    @ObservedObject private var appearance = HTTAppearanceStore.shared
 
     var body: some View {
         Form {
+            Section {
+                LabeledContent("버전", value: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "—")
+                LabeledContent("빌드", value: Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "—")
+                HStack {
+                    Spacer()
+                    Button("업데이트 확인…") { (NSApp.delegate as? AppDelegate)?.checkForUpdates() }
+                }
+            } header: {
+                Text("HTT 정보")
+            } footer: {
+                Text("메뉴의 'HTT 정보'는 이 화면으로 이동합니다. 업데이트 확인은 시스템 표준 창으로 표시됩니다.")
+            }
+            Section {
+                HStack {
+                    Text("테마 (병기스타일)")
+                    Spacer()
+                    Picker("", selection: $appearance.theme) {
+                        ForEach(HTTTheme.allCases) { theme in
+                            Text(theme.displayName).tag(theme)
+                        }
+                    }
+                    .pickerStyle(.menu)
+                    .frame(width: 170)
+                }
+                HStack {
+                    Text("아이콘 스타일")
+                    Spacer()
+                    Picker("", selection: $appearance.iconStyle) {
+                        ForEach(HTTIconStyle.allCases) { style in
+                            Text(style.displayName).tag(style)
+                        }
+                    }
+                    .pickerStyle(.menu)
+                    .frame(width: 170)
+                }
+            } header: {
+                Text("화면 스타일")
+            } footer: {
+                Text("색상 테마(자동·라이트·프라이데이·자비스·울트론)와 아이콘 스타일(심플·입체·리얼)을 설정합니다.")
+            }
             Section {
                 Toggle("Dock에 아이콘 표시", isOn: $dockVisibility.showDockIcon)
             } header: {
                 Text("Dock")
             } footer: {
-                Text("켜면 Dock에도 Barobogi 아이콘을 표시합니다.")
+                Text("켜면 Dock에도 HTT 아이콘을 표시합니다.")
             }
 
             Section {
@@ -175,8 +216,7 @@ struct AISettingsView: View {
             }
         }
         .formStyle(.grouped)
-        .frame(width: 560)
-        .frame(minHeight: 620)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .aibiHiddenSurface()
         .confirmationDialog("외부 AI·웹 번역 세션을 모두 지울까요?", isPresented: $confirmClear) {
             Button("모두 지우기", role: .destructive) {

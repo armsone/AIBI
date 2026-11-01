@@ -40,6 +40,94 @@ object ExternalAIScripts {
         }
     """.trimIndent()
 
+    /**
+     * Gemini(Quill) 입력 헬퍼. iPhone 실측은 하이드레이션 뒤 정규화 내용 불일치뿐이며, Quill 의 <br> 정리나
+     * Trusted Types insertHTML 예외는 확인되지 않은 추정이다. 네이티브 편집 명령(insertText)으로 먼저 넣고,
+     * 정규화한 전체 내용이 다르면 Quill 문단 구조를 DOM API 로 만들어 교체한다(HTML 문자열 싱크 없음).
+     * 그래도 다르면 실패다. 진단 큐에는 고정 단계 이름과 정수만 넣는다.
+     */
+    private val quillWriteHelpers = """
+        function smNorm(v) { return String(v || '').replace(/\s+/g, ' ').trim(); }
+        function smIsQuill(el) { return !!(el && el.isContentEditable && el.classList && el.classList.contains('ql-editor')); }
+        function smEmit(stage, metrics) {
+            var q = window.__sm_diag_queue;
+            if (q && q.length < 400) q.push({ stage: stage, metrics: metrics });
+        }
+        function smWriteQuill(el, text) {
+            el.focus();
+            var selection = window.getSelection();
+            var range = document.createRange();
+            range.selectNodeContents(el);
+            selection.removeAllRanges();
+            selection.addRange(range);
+            var typed = false;
+            try { typed = document.execCommand('insertText', false, text); } catch (_) { typed = false; }
+            if (!typed || smNorm(el.innerText) !== smNorm(text)) {
+                var paragraphs = String(text).split(/\r\n|\r|\n/).map(function(line) {
+                    var p = document.createElement('p');
+                    if (line) p.textContent = line; else p.appendChild(document.createElement('br'));
+                    return p;
+                });
+                el.replaceChildren.apply(el, paragraphs);
+                el.dispatchEvent(new InputEvent('input', { bubbles: true, composed: true, inputType: 'insertText', data: text }));
+            }
+            if (smNorm(el.innerText) !== smNorm(text)) return false;
+            el.dispatchEvent(new Event('change', { bubbles: true, composed: true }));
+            return true;
+        }
+    """.trimIndent()
+
+    /**
+     * Gemini 전용 첫 전송 전 준비 확인(claim 직전). iPhone 실측: 채우기 26/96ms 뒤 누른 실행은 제공사 화면이 답 없이
+     * 생성 표시만 유지했고 늦게 누른 실행은 완료됐다(원인은 추정). 문서 complete, 넣은 문구와 정규화 전체 일치,
+     * 작성창 안 유일한 전송 후보, 같은 연결된 편집기·버튼·원문·첨부 수가 기존 폴링 3회 연속·900ms 이상 유지될 때만
+     * 통과한다. 별도 대기는 없다. 전송 전 로드가 끝난 Quill 편집기의 내용이 바뀌었으면 같은 문구를 다시 넣되
+     * 페이지당 성공 채우기 3회까지만 한다. 전송(dispatched) 뒤에는 sendButton()이 null 이므로 재입력·재전송이 없다.
+     * 제공사 생성 표식(기존 generating selector)이 보이면 사용자가 직접 보냈을 수 있으므로 편집기를 건드리지 않고 돌아간다.
+     */
+    private fun geminiClaimGate(generatingSelectors: String): String = """
+        ${quillWriteHelpers}
+        var smPrevious = window.__sm_send_readiness || null;
+        window.__sm_send_readiness = null;
+        if (window.__sm_cancelled || window.__sm_submit_dispatched) return JSON.stringify({found:false});
+        var smGeneratingSelectors = $generatingSelectors;
+        var smGenerating = smGeneratingSelectors.some(function(selector) {
+            try { return Array.from(document.querySelectorAll(selector)).some(visible); } catch (_) { return false; }
+        });
+        if (smGenerating) return JSON.stringify({found:false});
+        var smExpected = window.__sm_last_filled || '';
+        var smCurrent = input ? smNorm(input.value || input.innerText || input.textContent) : '';
+        if (input && smExpected && document.readyState === 'complete' && smIsQuill(input) && smCurrent !== smNorm(smExpected)) {
+            var smFills = window.__sm_fill_count || 0;
+            if (smFills >= 1 && smFills < 3) {
+                smEmit('send_blocked', { prompt_present: 0, attempt: smFills });
+                if (smWriteQuill(input, smExpected)) {
+                    window.__sm_fill_count = smFills + 1;
+                    smEmit('prompt_inserted', { prompt_length: Math.min(10000000, smExpected.length), attempt: smFills + 1 });
+                } else {
+                    window.__sm_fill_count = 3;
+                    smEmit('prompt_failed', { prompt_present: 0 });
+                }
+            }
+            return JSON.stringify({found:false});
+        }
+        var smButton = sendButton();
+        if (!smButton || !input || !smCurrent || smCurrent !== smNorm(smExpected)) return JSON.stringify({found:false});
+        if (document.readyState !== 'complete' || (composer && findSendCandidates(composer).length > 1)) return JSON.stringify({found:false});
+        var smTextField = input.tagName === 'TEXTAREA' || input.tagName === 'INPUT';
+        if (!input.isConnected || !smButton.isConnected || !(smTextField ? !input.disabled && !input.readOnly : input.isContentEditable)) return JSON.stringify({found:false});
+        var smRaw = String(input.value || input.innerText || input.textContent || '');
+        var smAttachments = attachmentCount();
+        var smNow = Date.now();
+        var smSame = !!smPrevious && smPrevious.editor === input && smPrevious.button === smButton && smPrevious.raw === smRaw && smPrevious.attachments === smAttachments;
+        window.__sm_send_readiness = smSame
+            ? { editor: input, button: smButton, raw: smRaw, attachments: smAttachments, since: smPrevious.since, samples: smPrevious.samples + 1 }
+            : { editor: input, button: smButton, raw: smRaw, attachments: smAttachments, since: smNow, samples: 1 };
+        if (window.__sm_send_readiness.samples < 3 || smNow - window.__sm_send_readiness.since < 900) return JSON.stringify({found:false});
+        smEmit('send_ready', { stable_samples: Math.min(1000, window.__sm_send_readiness.samples) });
+        window.__sm_send_readiness = null;
+    """.trimIndent()
+
     private fun submissionHelpers(provider: DirectAIProvider): String {
         val config = providerSelectors(provider)
         val allowAncestorSearch = provider == DirectAIProvider.GEMINI || provider == DirectAIProvider.CLAUDE
@@ -305,6 +393,7 @@ object ExternalAIScripts {
     /** Revalidates attachments and atomically reserves the single native dispatch. */
     fun claimNativeSubmissionScript(provider: DirectAIProvider, expectedCount: Int = 0): String = """
         (function(){window.__sm_expected_attachments=${expectedCount.coerceIn(0,20)};${submissionHelpers(provider)}
+        ${if (provider == DirectAIProvider.GEMINI) geminiClaimGate(providerSelectors(provider).generating) else ""}
         var b=sendButton();if(!b)return JSON.stringify({found:false});
         var r=b.getBoundingClientRect();window.__sm_submit_dispatched=true;
         return JSON.stringify({found:true,x:(r.left+r.width/2)/innerWidth,y:(r.top+r.height/2)/innerHeight});})();
@@ -811,6 +900,7 @@ object ExternalAIScripts {
                     var force = $force;
 
                     ${editorVisibilityHelpers}
+                    ${quillWriteHelpers}
 
                     function queryFirst(selectors) {
                         for (var i = 0; i < selectors.length; i++) {
@@ -853,6 +943,7 @@ object ExternalAIScripts {
                         });
                     }
 
+                    window.__sm_send_readiness = null;
                     el.focus();
 
                     if (isTextField) {
@@ -865,6 +956,11 @@ object ExternalAIScripts {
                         }
                         el.dispatchEvent(new Event('input', { bubbles: true, composed: true }));
                         el.dispatchEvent(new Event('change', { bubbles: true, composed: true }));
+                    } else if (smIsQuill(el)) {
+                        // Gemini(Quill): 정규화한 전체 내용이 같을 때만 성공. 다르면 __sm_last_filled 를 바꾸지 않는다.
+                        if (!smWriteQuill(el, text)) {
+                            return JSON.stringify({ success: false, inputFound: true, submitted: false, error: 'PROMPT_MISMATCH' });
+                        }
                     } else if (el.isContentEditable || el.getAttribute('contenteditable') === 'true') {
                         var selection = window.getSelection();
                         var range = document.createRange();
@@ -896,6 +992,7 @@ object ExternalAIScripts {
                     }
 
                     window.__sm_last_filled = text;
+                    window.__sm_fill_count = (window.__sm_fill_count || 0) + 1;
                     return JSON.stringify({
                         success: true,
                         inputFound: true,

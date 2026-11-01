@@ -131,14 +131,16 @@ class ExternalAIDiagnosticsStore(context: Context) {
             "send_ready", "send_attempted", "send_blocked", "send_observed", "send_timeout", "generation_started",
             "generation_progress", "generation_completed", "generation_failed", "response_rejected", "result_applied",
             "manual_takeover", "run_cancelled", "run_failed", "run_completed", "bridge_snapshot", "event_limit_reached",
-            "request_started", "request_response", "request_failed"
+            "request_started", "request_response", "request_failed",
+            "navigation_blocked", "navigation_finished", "auth_window_opened", "auth_window_closed"
         )
         private val limits = buildMap<String, IntRange> {
             listOf("expected_count", "prepared_count", "attached_count", "preview_count", "input_count", "uploading_count", "failed_count", "image_count").forEach { put(it, 0..100) }
-            listOf("composer_present", "send_present", "send_enabled", "stop_present", "prompt_present", "upload_complete", "user_message_present", "assistant_message_present", "attachment_verified", "generation_active", "request_has_messages").forEach { put(it, 0..1) }
+            listOf("composer_present", "send_present", "send_enabled", "stop_present", "prompt_present", "upload_complete", "user_message_present", "assistant_message_present", "attachment_verified", "generation_active", "request_has_messages", "auth_window", "main_frame").forEach { put(it, 0..1) }
             put("message_count", 0..100_000); put("response_length", 0..10_000_000); put("prompt_length", 0..10_000_000)
             put("total_bytes", 0..1_000_000_000); put("attempt", 0..1000); put("stable_samples", 0..1000)
             put("request_kind", 1..2); put("http_status", 0..599); put("failure_kind", 1..3); put("request_id", 1..1000)
+            put("host_category", 0..6); put("close_kind", 1..5)
         }
         private fun safeMetrics(metrics: Map<String, Int>): JSONObject = JSONObject().also { result ->
             metrics.forEach { (key, value) -> if (limits[key]?.contains(value) == true) result.put(key, value) }
@@ -151,7 +153,27 @@ class ExternalAIDiagnosticsStore(context: Context) {
             .put("failure_kind", JSONObject().put("1", "AbortError").put("2", "TypeError").put("3", "other"))
             .put("http_status", JSONObject().put("0", "No response status").put("1...599", "Observed response status"))
             .put("image_count", JSONObject().put("0...100", "Observed image count"))
+            .put("host_category", JSONObject()
+                .put("0", "unparseable")
+                .put("1", "about:blank")
+                .put("2", "non-https scheme")
+                .put("3", "provider script origin")
+                .put("4", "provider/login auth origin")
+                .put("5", "shared CDN/challenge host")
+                .put("6", "other https host"))
+            .put("auth_window", JSONObject().put("0", "main window").put("1", "auth popup window"))
+            .put("main_frame", JSONObject().put("0", "subframe").put("1", "main frame"))
+            .put("close_kind", JSONObject()
+                .put("1", "page closed itself")
+                .put("2", "user closed")
+                .put("3", "disallowed navigation")
+                .put("4", "child renderer gone")
+                .put("5", "sheet teardown or parent loss"))
             .put("stages", JSONObject().put("request_started", "Request started; acceptance not confirmed")
-                .put("request_response", "HTTP response; image usability not confirmed").put("request_failed", "Request failed before normal response"))
+                .put("request_response", "HTTP response; image usability not confirmed").put("request_failed", "Request failed before normal response")
+                .put("navigation_blocked", "Navigation target outside security allowlist blocked")
+                .put("navigation_finished", "Navigation completed to allowed target")
+                .put("auth_window_opened", "OAuth child window opened via user gesture")
+                .put("auth_window_closed", "OAuth child window closed"))
     }
 }

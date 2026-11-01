@@ -170,6 +170,23 @@ class AuthenticationContractTests(unittest.TestCase):
         for key in ("sidebarTriggerAcceptedLabels", "sidebarToggleLabels", "sidebarToggleTestIds", "sidebarCloseLabels"):
             for marker in fixture[key]:
                 self.assertIn(f'"{marker}"', markers)
+        # Android port: only the device-observed kind-1 form (exact open label + explicit aria-expanded=false),
+        # bounded in the Settings probe and the login sheet, never Gemini's stateless toggle in the sheet.
+        android = (ROOT / "profiles/imanager/distribution/android/ExternalAIAuthStatus.kt").read_text()
+        surface = (ROOT / "profiles/imanager/distribution/android/ExternalAISurface.kt").read_text()
+        android_claude = android.split("private fun claudeClosedSidebarScript", 1)[1]
+        for key in ("sidebarTriggerAcceptedLabels", "sidebarCloseLabels"):
+            for marker in fixture[key]:
+                self.assertIn(f'"{marker}"', android.split("private val claudeSidebarOpenLabels", 1)[1])
+        self.assertIn("if (matches.length !== 1) return false;", android_claude)
+        self.assertIn("if (target.getAttribute('aria-expanded') !== 'false') return false;", android_claude)
+        self.assertIn("if (isClose) return false;", android_claude)
+        self.assertNotIn("toggle", android_claude.lower())
+        self.assertIn("provider == DirectAIProvider.OPEN_AI || provider == DirectAIProvider.CLAUDE", android)
+        self.assertIn("hasExplicitClosedSidebarReveal(provider) &&\n                                    pollCount < 16 && pollCount % 2 == 0", android)
+        sheet = surface.split("var sidebarClicks = 0", 1)[1].split("delay(500L)", 1)[0]
+        self.assertLess(sheet.index("} else if (check.hasLogin) {"), sheet.index("sidebarOpenScript(provider)"))
+        self.assertIn("hasExplicitClosedSidebarReveal(provider) && sidebarClicks < 6", sheet)
         self.assertIn("if (closeVisible || visible.length !== 1) return JSON.stringify({ clicked: false });", claude)
         self.assertIn("if (expanded === 'true') return JSON.stringify({ clicked: false });", claude)
         self.assertIn("if (c.pin) continue;", claude)

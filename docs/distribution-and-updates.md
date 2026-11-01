@@ -37,11 +37,11 @@ The first `apply` adopts an existing file only when it already equals the distri
 
 The sync tool does not run builds, devices, Git commands, or releases. Those remain explicit verification and delivery steps in the affected app repository.
 
-## Current Barobogi host (0.5.4)
+## Current HTT host (formerly Barobogi, 0.5.4 → 0.5.5 path)
 
-`consumers/mailtranslator.json` now points to `../Barobogi-MacOS`, where mail and screen translation share the current native AIBI runner. The standalone MailTranslator checkout is historical. Refresh distribution snapshots from the current host project first; do not copy historical standalone files over this host. Existing app-specific modifications remain owned by that app.
+`consumers/mailtranslator.json` now points to `../HTT-MacOS` (the renamed Barobogi-MacOS checkout; consumer ID `mailtranslator` and repository ID `mailtranslator-macos` are kept for compatibility), where mail and screen translation share the current native AIBI runner. The standalone MailTranslator checkout is historical. Refresh distribution snapshots from the current host project first; do not copy historical standalone files over this host. Existing app-specific modifications remain owned by that app.
 
-Barobogi iOS currently uses its own Google/DeepL browser adapter; Windows currently uses a local model rather than the common AI-site runtime. Do not silently install the common runtime into either path or claim provider parity.
+The host's iOS app currently uses its own Google/DeepL browser adapter; Windows currently uses a local model rather than the common AI-site runtime. Do not silently install the common runtime into either path or claim provider parity.
 
 ## Provider structure verification (0.5.4)
 
@@ -57,3 +57,10 @@ Source of the fixes: Stargram iPhone (2.6.8 / 202610311912, `aibi-stargram-0.5.5
 - Release scope: 0.5.5 is embedded only in the iPhone apps Stargram 2.6.8 (202610311912) and DenimDex 0.4.1 (202610312018). Android adapters (Stargram, DenimDex) and the macOS mail host profile are not part of this release; their propagation and device verification are deferred and not claimed.
 
 Verification level per platform is recorded in `verification/2026-10-31-iphone.md`. Physical iPhone: Stargram three providers each one synthetic image to a native result with one automatic send; DenimDex positive login probe, automatic login-sheet dismissal and one full three-photo ChatGPT appraisal pipeline (proves the app pipeline, not appraisal accuracy). Trace coverage is not physical proof on Android or macOS.
+
+## Android Stargram maintenance update (0.5.6)
+
+Android Stargram profile (`profiles/imanager/distribution/android/`) embeds Gemini stable-send readiness gating (Quill input normalization, poll stability latching), Claude login account detection with collapsed-sidebar probe, and managed OAuth child window (`auth_window_opened`/`auth_window_closed`, bounded `host_category`, `auth_window`, `main_frame`, `close_kind`) diagnostics storage alignment.
+
+- Source and static packaging verified; actual physical device execution flows on Android and macOS remain unproven and are not claimed.
+- Verification details recorded in `verification/2026-11-01-embedding.md`.

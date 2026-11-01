@@ -260,7 +260,8 @@ object ExternalAIAuthStatus {
                             checkResult.hasLogin -> complete(ExternalAIAuthState.REQUIRES_LOGIN)
                             checkResult.hasChallenge -> complete(ExternalAIAuthState.UNKNOWN)
                             else -> {
-                                if (provider == DirectAIProvider.OPEN_AI &&
+                                // Bounded (≤8) only while no account, login or challenge marker exists.
+                                if (hasExplicitClosedSidebarReveal(provider) &&
                                     pollCount < 16 && pollCount % 2 == 0
                                 ) {
                                     webView.evaluateJavascript(sidebarOpenScript(provider), null)
@@ -303,11 +304,19 @@ private tailrec fun Context.findActivity(): Activity? = when (this) {
     else -> null
 }
 
+/** Providers whose closed-sidebar control is clicked only on explicit semantic closed-state evidence. */
+internal fun hasExplicitClosedSidebarReveal(provider: DirectAIProvider): Boolean =
+    provider == DirectAIProvider.OPEN_AI || provider == DirectAIProvider.CLAUDE
+
 /**
  * Opens a closed provider sidebar once so account markers can render. ChatGPT is clicked only when
  * exactly one visible closed toggle matches (Gemini keeps its single-selector click); an expanded or ambiguous toggle is never clicked.
+ * Claude (iPhone 2026-10-31 sanitized probe: one visible exact open-sidebar label, explicit aria-expanded=false,
+ * no close/pin/test-id controls, account marker present after the click) uses the same exact closed-state form only.
+ * Stateless toggles, pin controls and generic menu names are never clicked. Authentication still comes only from
+ * provider account markers in [ExternalAIScripts.checkAuthStatusScript].
  */
-private fun sidebarOpenScript(provider: DirectAIProvider): String {
+internal fun sidebarOpenScript(provider: DirectAIProvider): String {
     if (provider == DirectAIProvider.GEMINI) {
         return """
             (function() {
@@ -318,6 +327,7 @@ private fun sidebarOpenScript(provider: DirectAIProvider): String {
             })();
         """.trimIndent()
     }
+    if (provider == DirectAIProvider.CLAUDE) return claudeClosedSidebarScript()
     val selectors = when (provider) {
         DirectAIProvider.OPEN_AI -> listOf(
             "button[data-testid='open-sidebar-button']",
@@ -350,6 +360,65 @@ private fun sidebarOpenScript(provider: DirectAIProvider): String {
             if (matches.length !== 1) return false;
             matches[0].click();
             return true;
+        })();
+    """.trimIndent()
+}
+
+// Same exact open/close/pin label sets as the Stargram iOS adapter (lowercase, whitespace-normalized equality).
+private val claudeSidebarOpenLabels = listOf(
+    "open sidebar", "show sidebar", "expand sidebar",
+    "사이드바 열기", "사이드바 보기", "사이드바 표시", "사이드바 펼치기"
+)
+private val claudeSidebarCloseLabels = listOf(
+    "close sidebar", "hide sidebar", "collapse sidebar", "사이드바 닫기", "사이드바 숨기기", "사이드바 접기"
+)
+private val claudeSidebarPinMarkers = listOf(
+    "pin-sidebar-toggle", "pin sidebar", "unpin sidebar", "사이드바 고정", "사이드바 고정 해제"
+)
+
+/**
+ * Claude: click only when exactly one visible, enabled control has an exact open-sidebar aria-label/title and an
+ * explicit aria-expanded=false, and no visible close-sidebar control exists. Hidden/inert clones, pin controls and
+ * any other control are ignored. Returns true only after a click.
+ */
+private fun claudeClosedSidebarScript(): String {
+    val open = org.json.JSONArray(claudeSidebarOpenLabels).toString()
+    val close = org.json.JSONArray(claudeSidebarCloseLabels).toString()
+    val pin = org.json.JSONArray(claudeSidebarPinMarkers).toString()
+    return """
+        (function() {
+            try {
+                var openLabels = $open, closeLabels = $close, pinMarkers = $pin;
+                function norm(v) { return String(v || '').replace(/\s+/g, ' ').trim().toLowerCase(); }
+                function shown(el) {
+                    if (el.closest("[aria-hidden='true'], [inert]")) return false;
+                    for (var node = el; node && node.nodeType === 1; node = node.parentElement) {
+                        var s = getComputedStyle(node);
+                        if (s.display === 'none' || s.visibility === 'hidden' || s.opacity === '0' || node.hidden) return false;
+                    }
+                    var r = el.getBoundingClientRect();
+                    return r.width > 0 && r.height > 0;
+                }
+                var nodes = document.querySelectorAll("button, [role='button']"), matches = [];
+                for (var i = 0; i < nodes.length; i++) {
+                    var el = nodes[i];
+                    var names = [norm(el.getAttribute('aria-label')), norm(el.getAttribute('title'))];
+                    var isOpen = names.some(function(n) { return n && openLabels.indexOf(n) !== -1; });
+                    var isClose = names.some(function(n) { return n && closeLabels.indexOf(n) !== -1; });
+                    var isPin = names.concat([norm(el.getAttribute('data-testid'))]).some(function(n) { return n && pinMarkers.indexOf(n) !== -1; });
+                    if (!(isOpen || isClose) || isPin || !shown(el)) continue;
+                    if (isClose) return false;
+                    matches.push(el);
+                }
+                if (matches.length !== 1) return false;
+                var target = matches[0];
+                if (target.disabled || target.getAttribute('aria-disabled') === 'true') return false;
+                if (target.getAttribute('aria-expanded') !== 'false') return false;
+                target.click();
+                return true;
+            } catch (e) {
+                return false;
+            }
         })();
     """.trimIndent()
 }

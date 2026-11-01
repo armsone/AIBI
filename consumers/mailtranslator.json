@@ -4,7 +4,7 @@
   "repositories": [
     {
       "id": "mailtranslator-macos",
-      "root": "../Barobogi-MacOS",
+      "root": "../HTT-MacOS",
       "lockFile": ".aibi-lock.json",
       "verification": "./build.sh",
       "files": [
