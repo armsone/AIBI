@@ -44,3 +44,11 @@
 - Independent TM authentication review found and corrected callback overlap, incomplete-result reporting and navigation classification defects before delivery. The final Android release build passed; packaged app identity/version and existing signing certificate were checked.
 - Stargram Android 2.6.13, code 439228, display build 202611020028 was installed as a data-preserving replacement on TriFold and Fold6. At this checkpoint both devices are locked, so foreground/login preservation confirmation is pending. No live authentication cookies were cleared during this maintenance.
 - AIBI changes apply to the Stargram Android host adapter and portable behavior contract only. Apple adapters, generic engine and other apps are not claimed updated. Installed skill references were synchronized.
+
+## Publication checkpoint
+
+- AIBI 0.5.7: https://github.com/armsone/AIBI/releases/tag/v0.5.7
+- Stargram Android 2.6.13: https://github.com/armsone/Stargram-Android/releases/tag/android-v2.6.13
+- Both public assets returned HTTP 200; GitHub asset SHA-256 values matched local release metadata. Hanstree public release metadata returned HTTP 200 with the same versions, filenames, hashes and Android code/build. Website source was not changed for this version update.
+- Source commits pushed: AIBI bbb2c23cb85cc51c5f3ff181958d384ed12436cc; Android c97861a62050586d09ace76f9c4621d183b8b08e.
+- Both installed app processes start, but devices remain locked. Post-install foreground/auth-state confirmation and requested chat archival remain pending; no recovery cookie deletion was performed on the current valid sessions.
