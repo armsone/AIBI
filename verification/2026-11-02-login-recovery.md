@@ -52,3 +52,10 @@
 - Both public assets returned HTTP 200; GitHub asset SHA-256 values matched local release metadata. Hanstree public release metadata returned HTTP 200 with the same versions, filenames, hashes and Android code/build. Website source was not changed for this version update.
 - Source commits pushed: AIBI bbb2c23cb85cc51c5f3ff181958d384ed12436cc; Android c97861a62050586d09ace76f9c4621d183b8b08e.
 - Both installed app processes start, but devices remain locked. Post-install foreground/auth-state confirmation and requested chat archival remain pending; no recovery cookie deletion was performed on the current valid sessions.
+
+## Final unlocked-device confirmation (2026-11-02 07:12 KST)
+
+- User unlocked both devices. TriFold and Fold6 each report installed Stargram Android 2.6.13 / code 439228.
+- Actual foreground settings on both devices completed their positive account probes and showed ChatGPT, Gemini and Claude as logged in. Existing sessions were preserved after replacement installation.
+- On each device the ChatGPT login-status control opened the official ChatGPT WebView. After positive authentication was recognized, the browser automatically dismissed back to settings, where all three providers remained logged in. No prompt was sent and no session reset was performed.
+- This resolves the previous locked-device verification checkpoint. Existing synthetic tests cover recovery detection and parsing; destructive recovery was deliberately not rerun on the now-valid sessions. No required follow-up remains for this maintenance/release; chat archival is authorized by the user.
